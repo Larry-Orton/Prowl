@@ -15,49 +15,27 @@ interface AIPanelProps {
 }
 
 function renderMessageContent(content: string): React.ReactNode {
-  // Split by code blocks
   const parts = content.split(/(```[\w]*\n[\s\S]*?```)/g);
   return parts.map((part, i) => {
     const codeBlockMatch = part.match(/^```(\w*)\n([\s\S]*?)```$/);
     if (codeBlockMatch) {
       return (
-        <pre key={i} style={{
-          background: 'var(--bg3)',
-          border: '1px solid var(--border2)',
-          borderRadius: 5,
-          padding: '8px 10px',
-          margin: '6px 0',
-          overflowX: 'auto',
-          fontFamily: '"JetBrains Mono", monospace',
-          fontSize: 11,
-          color: 'var(--text1)',
-          lineHeight: 1.5,
-        }}>
+        <pre key={i} className="msg-code-block">
+          <div className="code-block-header">
+            <span>{codeBlockMatch[1] || 'code'}</span>
+          </div>
           <code>{codeBlockMatch[2]}</code>
         </pre>
       );
     }
 
-    // Inline code
     const inlineParts = part.split(/(`[^`]+`)/g);
     return (
       <span key={i}>
         {inlineParts.map((p, j) => {
           if (p.startsWith('`') && p.endsWith('`') && p.length > 2) {
-            return (
-              <code key={j} style={{
-                fontFamily: '"JetBrains Mono", monospace',
-                fontSize: 11,
-                background: 'var(--bg3)',
-                padding: '1px 4px',
-                borderRadius: 3,
-                color: 'var(--accent2)',
-              }}>
-                {p.slice(1, -1)}
-              </code>
-            );
+            return <code key={j} className="msg-inline-code">{p.slice(1, -1)}</code>;
           }
-          // Handle newlines
           return p.split('\n').map((line, k, arr) => (
             <React.Fragment key={k}>
               {line}
@@ -86,7 +64,6 @@ const AIPanel: React.FC<AIPanelProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Handle initial input from keyword commands
   useEffect(() => {
     if (initialInput) {
       setInputValue(initialInput);
@@ -95,7 +72,6 @@ const AIPanel: React.FC<AIPanelProps> = ({
     }
   }, [initialInput, onClearInitialInput]);
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isThinking]);
@@ -103,12 +79,7 @@ const AIPanel: React.FC<AIPanelProps> = ({
   const handleSend = useCallback(() => {
     const text = inputValue.trim();
     if (!text) return;
-
-    if (!hasApiKey) {
-      onOpenApiModal();
-      return;
-    }
-
+    if (!hasApiKey) { onOpenApiModal(); return; }
     setInputValue('');
     onSendMessage(text, context, notes);
   }, [inputValue, hasApiKey, onSendMessage, onOpenApiModal, context, notes]);
@@ -121,74 +92,58 @@ const AIPanel: React.FC<AIPanelProps> = ({
   }, [handleSend]);
 
   const handleSaveMessage = useCallback((msg: AIMessage) => {
-    // Create a plain text version for the note
     const plain = msg.content.replace(/```[\w]*\n([\s\S]*?)```/g, '$1').trim();
-    const title = plain.slice(0, 50) + (plain.length > 50 ? '…' : '');
+    const title = plain.slice(0, 50) + (plain.length > 50 ? '...' : '');
     onSaveToNotes(`${title}\n\n${msg.content}`);
   }, [onSaveToNotes]);
 
-  const contextLive = !!context.primaryTarget || context.discoveredPorts.length > 0;
-
   return (
-    <div className="ai-panel-inner">
+    <div className="panel-inner ai-inner">
       {/* Header */}
-      <div className="ai-panel-header">
-        <div className="ai-panel-title">
-          <h3>AI Assistant</h3>
-          <span className="ai-badge">Claude</span>
+      <div className="ai-header">
+        <div className="ai-header-left">
+          <span className="ai-title">AI</span>
+          <span className="ai-model-badge">Claude</span>
         </div>
-        <div className="ai-status">
-          <div className={`status-dot ${hasApiKey ? (contextLive ? '' : '') : 'offline'} ${isThinking ? 'thinking' : ''}`} />
-          <span>
-            {isThinking ? 'thinking...' : hasApiKey ? 'context live' : 'no api key'}
-          </span>
+        <div className={`ai-status-indicator ${isThinking ? 'thinking' : hasApiKey ? 'ready' : 'offline'}`}>
+          <span className="status-pulse" />
+          {isThinking ? 'thinking' : hasApiKey ? 'live' : 'offline'}
         </div>
       </div>
 
       {/* Messages */}
       <div className="ai-messages">
         {messages.length === 0 && !isThinking && (
-          <div style={{
-            padding: '20px 12px',
-            textAlign: 'center',
-            color: 'var(--text3)',
-            fontSize: 11,
-            lineHeight: 1.8,
-          }}>
-            <div style={{ fontSize: 24, marginBottom: 8 }}>✦</div>
-            <div>Ask me anything about your target</div>
-            <div style={{ marginTop: 8, fontSize: 10 }}>
-              Type <code style={{ background: 'var(--bg3)', padding: '1px 4px', borderRadius: 3 }}>ask &lt;question&gt;</code> in terminal
+          <div className="ai-empty">
+            <div className="ai-empty-glyph">◆</div>
+            <div className="ai-empty-text">Ask me anything about your target</div>
+            <div className="ai-empty-hint">
+              type <code>ask &lt;question&gt;</code> in terminal
             </div>
             {!hasApiKey && (
-              <div style={{ marginTop: 12 }}>
-                <button
-                  className="btn-primary"
-                  onClick={onOpenApiModal}
-                  style={{ fontSize: 11, padding: '6px 14px' }}
-                >
-                  Set API Key
-                </button>
-              </div>
+              <button className="btn-accent" onClick={onOpenApiModal} style={{ marginTop: 12 }}>
+                Set API Key
+              </button>
             )}
           </div>
         )}
 
         {messages.map((msg) => (
-          <div key={msg.id} className={`ai-message ${msg.role}`}>
+          <div key={msg.id} className={`ai-msg ${msg.role}`}>
             {msg.role === 'assistant' && (
-              <div className="ai-message-label">CLAUDE · session context attached</div>
+              <div className="ai-msg-label">
+                <span className="ai-msg-dot" />
+                CLAUDE
+              </div>
             )}
-            <div className="ai-message-bubble">
+            <div className="ai-msg-content">
               {renderMessageContent(msg.content)}
             </div>
             {msg.role === 'assistant' && (
-              <div className="ai-message-actions">
-                <button
-                  className="ai-save-btn"
-                  onClick={() => handleSaveMessage(msg)}
-                >
-                  + save to notes
+              <div className="ai-msg-actions">
+                <button className="action-btn" onClick={() => handleSaveMessage(msg)}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
+                  save to notes
                 </button>
               </div>
             )}
@@ -196,14 +151,13 @@ const AIPanel: React.FC<AIPanelProps> = ({
         ))}
 
         {isThinking && (
-          <div className="ai-message assistant">
-            <div className="ai-message-label">CLAUDE · thinking</div>
-            <div className="ai-thinking">
-              <div className="thinking-dots">
-                <span>·</span>
-                <span>·</span>
-                <span>·</span>
-              </div>
+          <div className="ai-msg assistant">
+            <div className="ai-msg-label">
+              <span className="ai-msg-dot thinking" />
+              CLAUDE
+            </div>
+            <div className="ai-thinking-bar">
+              <div className="thinking-wave" />
             </div>
           </div>
         )}
@@ -212,24 +166,26 @@ const AIPanel: React.FC<AIPanelProps> = ({
       </div>
 
       {/* Input */}
-      <div className="ai-input-area">
+      <div className="ai-input-bar">
         <textarea
           ref={inputRef}
-          className="ai-input"
+          className="ai-textarea"
           placeholder="Ask about target, exploits, techniques..."
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleKeyDown}
           rows={1}
-          style={{ height: Math.min(120, Math.max(36, inputValue.split('\n').length * 20)) }}
+          style={{ height: Math.min(100, Math.max(34, inputValue.split('\n').length * 18 + 16)) }}
         />
         <button
-          className="ai-send-btn"
+          className="ai-send"
           onClick={handleSend}
           disabled={isThinking || !inputValue.trim()}
-          title="Send message"
         >
-          ↑
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="19" x2="12" y2="5"/>
+            <polyline points="5 12 12 5 19 12"/>
+          </svg>
         </button>
       </div>
     </div>

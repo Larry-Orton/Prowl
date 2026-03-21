@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { Note } from '@shared/types';
-import { QUICK_COMMANDS, CRITICAL_PORTS, HIGH_RISK_PORTS } from '@shared/constants';
+import { QUICK_COMMANDS, CRITICAL_PORTS } from '@shared/constants';
 import { useSessionStore } from '../store/sessionStore';
 
 interface NotesPanelProps {
@@ -46,129 +46,129 @@ const NotesPanel: React.FC<NotesPanelProps> = ({
 
   const isHighRisk = (port: number) => CRITICAL_PORTS.includes(port);
 
+  const sourceIcon = (source: string) => {
+    switch (source) {
+      case 'ai': return '◆';
+      case 'terminal': return '▸';
+      default: return '●';
+    }
+  };
+
   if (viewingNote) {
     return (
-      <div className="notes-panel-inner">
+      <div className="panel-inner">
         <div className="panel-section">
-          <div className="note-detail-back" onClick={handleBackFromDetail}>
-            ← Back
-          </div>
+          <button className="back-btn" onClick={handleBackFromDetail}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
+            Back
+          </button>
         </div>
         <div className="note-detail">
           <div className="note-detail-title">{viewingNote.title}</div>
-          <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 8 }}>
-            {formatDate(viewingNote.createdAt)} · <span style={{
-              color: viewingNote.source === 'ai' ? 'var(--accent2)' :
-                     viewingNote.source === 'terminal' ? 'var(--green)' : 'var(--text3)'
-            }}>{viewingNote.source}</span>
+          <div className="note-detail-meta">
+            <span className={`source-dot ${viewingNote.source}`}>{sourceIcon(viewingNote.source)}</span>
+            {viewingNote.source} · {formatDate(viewingNote.createdAt)}
           </div>
           <div className="note-detail-content">{viewingNote.content}</div>
-          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-            <button
-              className="ai-save-btn"
-              onClick={() => onDeleteNote(viewingNote.id)}
-              style={{ color: 'var(--red)', borderColor: 'rgba(239,68,68,0.3)' }}
-            >
-              Delete
-            </button>
-          </div>
+          <button
+            className="btn-danger"
+            onClick={() => { onDeleteNote(viewingNote.id); setViewingNote(null); }}
+          >
+            Delete Note
+          </button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="notes-panel-inner">
+    <div className="panel-inner">
       {/* Search */}
       <div className="panel-section">
-        <input
-          className="search-input"
-          type="text"
-          placeholder="Search notes..."
-          value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
-        />
+        <div className="search-wrapper">
+          <svg className="search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input
+            className="search-input"
+            type="text"
+            placeholder="Search notes..."
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+          />
+        </div>
       </div>
 
       {/* Active Target */}
       <div className="panel-section">
-        <div className="panel-section-title">Active Target</div>
+        <div className="section-label">TARGET</div>
         <div className="target-card">
           {context.primaryTarget ? (
             <>
               <div className="target-ip">{context.primaryTarget}</div>
               {context.discoveredPorts.length > 0 && (
                 <div className="port-tags">
-                  {context.discoveredPorts.slice(0, 12).map(port => (
-                    <span
-                      key={port}
-                      className={`port-tag ${isHighRisk(port) ? 'high-risk' : ''}`}
-                    >
+                  {context.discoveredPorts.slice(0, 10).map(port => (
+                    <span key={port} className={`port-tag ${isHighRisk(port) ? 'critical' : ''}`}>
                       {port}
                     </span>
                   ))}
-                  {context.discoveredPorts.length > 12 && (
-                    <span className="port-tag" style={{ color: 'var(--text3)' }}>
-                      +{context.discoveredPorts.length - 12}
-                    </span>
+                  {context.discoveredPorts.length > 10 && (
+                    <span className="port-tag more">+{context.discoveredPorts.length - 10}</span>
                   )}
                 </div>
               )}
               {context.discoveredPorts.length === 0 && (
-                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>
-                  No ports discovered yet
-                </div>
+                <div className="target-hint">No ports discovered</div>
               )}
             </>
           ) : (
-            <div className="target-ip-placeholder">
-              No target set<br />
-              <span style={{ fontSize: 10 }}>type: target &lt;ip&gt;</span>
+            <div className="target-empty">
+              <span className="target-empty-icon">⊘</span>
+              <span>No target — type <code>target &lt;ip&gt;</code></span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Notes List */}
-      <div className="notes-list" style={{ flex: 1 }}>
-        {notes.length === 0 ? (
-          <div className="notes-empty">
-            No notes yet<br />
-            type <code style={{ fontSize: 10, background: 'var(--bg3)', padding: '1px 4px', borderRadius: 3 }}>note &lt;text&gt;</code><br />
-            to add a note
-          </div>
-        ) : (
-          notes.map(note => (
-            <div
-              key={note.id}
-              className={`note-item ${note.id === selectedNoteId ? 'selected' : ''}`}
-              onClick={() => handleNoteClick(note)}
-            >
-              <div className="note-item-title">{note.title}</div>
-              <div className="note-item-preview">
-                {note.content.slice(0, 60)}{note.content.length > 60 ? '…' : ''}
-              </div>
-              <div className="note-item-meta">
-                <span className={`note-source-badge ${note.source}`}>
-                  {note.source}
-                </span>
-                <span style={{ fontSize: 9, color: 'var(--text3)', marginLeft: 'auto' }}>
-                  {formatDate(note.updatedAt)}
-                </span>
-              </div>
+      {/* Notes */}
+      <div className="panel-section" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div className="section-label" style={{ flexShrink: 0 }}>
+          NOTES
+          <span className="section-count">{notes.length}</span>
+        </div>
+        <div className="notes-scroll">
+          {notes.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">◇</div>
+              <div>No notes yet</div>
+              <div className="empty-hint">type <code>note &lt;text&gt;</code></div>
             </div>
-          ))
-        )}
+          ) : (
+            notes.map(note => (
+              <div
+                key={note.id}
+                className={`note-item ${note.id === selectedNoteId ? 'selected' : ''}`}
+                onClick={() => handleNoteClick(note)}
+              >
+                <div className="note-item-header">
+                  <span className={`source-dot ${note.source}`}>{sourceIcon(note.source)}</span>
+                  <span className="note-item-title">{note.title}</span>
+                </div>
+                <div className="note-item-preview">{note.content.slice(0, 55)}{note.content.length > 55 ? '...' : ''}</div>
+                <div className="note-item-date">{formatDate(note.updatedAt)}</div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
       {/* Quick Commands */}
-      <div className="quick-commands">
-        <div className="panel-section-title" style={{ marginBottom: 6 }}>Quick Commands</div>
-        <div className="quick-cmd-grid">
+      <div className="panel-section panel-footer">
+        <div className="section-label">TOOLS</div>
+        <div className="quick-grid">
           {QUICK_COMMANDS.map(qc => (
             <button
               key={qc.label}
-              className="quick-cmd-btn"
+              className="quick-btn"
               onClick={() => onQuickCommand(qc.cmd)}
               title={qc.description}
             >
@@ -176,21 +176,10 @@ const NotesPanel: React.FC<NotesPanelProps> = ({
             </button>
           ))}
         </div>
-        <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
-          <button
-            className="ai-save-btn"
-            onClick={onExportNotes}
-            style={{ fontSize: 10 }}
-          >
-            Export .md
-          </button>
-        </div>
-      </div>
-
-      {/* Hint */}
-      <div className="panel-hint">
-        type <strong>note &lt;text&gt;</strong> to add<br />
-        <strong>add last nmap</strong> to AI-summarize
+        <button className="export-btn" onClick={onExportNotes}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export .md
+        </button>
       </div>
     </div>
   );

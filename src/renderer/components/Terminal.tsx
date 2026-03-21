@@ -1,6 +1,7 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useEffect } from 'react';
 import { useTerminal, KeywordAction } from '../hooks/useTerminal';
 import { useSessionStore } from '../store/sessionStore';
+import { useThemeStore } from '../store/themeStore';
 
 interface TerminalProps {
   tabId: string;
@@ -12,10 +13,10 @@ const Terminal: React.FC<TerminalProps> = ({ tabId, isActive, onKeywordCommand }
   const containerRef = useRef<HTMLDivElement>(null);
   const addRecentCommand = useSessionStore(s => s.addRecentCommand);
   const lastOutputRef = useRef('');
+  const theme = useThemeStore(s => s.currentTheme);
 
   const handleOutput = useCallback((data: string) => {
     lastOutputRef.current += data;
-    // Keep last 10k chars
     if (lastOutputRef.current.length > 10000) {
       lastOutputRef.current = lastOutputRef.current.slice(-10000);
     }
@@ -25,7 +26,7 @@ const Terminal: React.FC<TerminalProps> = ({ tabId, isActive, onKeywordCommand }
     addRecentCommand(cmd);
   }, [addRecentCommand]);
 
-  const { writeToTerminal } = useTerminal({
+  const { term } = useTerminal({
     tabId,
     containerRef: containerRef as React.RefObject<HTMLDivElement>,
     onKeywordCommand,
@@ -33,12 +34,18 @@ const Terminal: React.FC<TerminalProps> = ({ tabId, isActive, onKeywordCommand }
     onOutput: handleOutput,
   });
 
+  // Live theme sync — update xterm theme without restarting
+  useEffect(() => {
+    if (term.current) {
+      term.current.options.theme = theme.terminal;
+    }
+  }, [theme, term]);
+
   return (
     <div
       className="terminal-container"
       ref={containerRef}
       onClick={() => {
-        // Re-focus terminal on click so typing always works
         const termEl = containerRef.current?.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null;
         termEl?.focus();
       }}

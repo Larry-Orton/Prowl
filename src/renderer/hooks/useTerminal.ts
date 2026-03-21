@@ -3,6 +3,7 @@ import { Terminal } from 'xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { useSessionStore } from '../store/sessionStore';
+import { useThemeStore } from '../store/themeStore';
 import { WELCOME_BANNER } from '@shared/constants';
 
 export type KeywordAction =
@@ -40,6 +41,7 @@ export function useTerminal({
 
   const parseAndUpdateFromOutput = useSessionStore(s => s.parseAndUpdateFromOutput);
   const setLastCommandOutput = useSessionStore(s => s.setLastCommandOutput);
+  const currentTheme = useThemeStore(s => s.currentTheme);
 
   const parseKeywordCommand = useCallback((line: string): KeywordAction | null => {
     const trimmed = line.trim();
@@ -117,31 +119,9 @@ export function useTerminal({
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Create terminal
+    // Create terminal with current theme
     const term = new Terminal({
-      theme: {
-        background: '#0f0f17',
-        foreground: '#e2e2f0',
-        cursor: '#8a8aff',
-        cursorAccent: '#0f0f17',
-        black: '#0a0a0f',
-        brightBlack: '#4a4a6a',
-        red: '#ef4444',
-        brightRed: '#ef4444',
-        green: '#22c55e',
-        brightGreen: '#22c55e',
-        yellow: '#f59e0b',
-        brightYellow: '#f59e0b',
-        blue: '#38bdf8',
-        brightBlue: '#38bdf8',
-        magenta: '#c084fc',
-        brightMagenta: '#c084fc',
-        cyan: '#8a8aff',
-        brightCyan: '#8a8aff',
-        white: '#e2e2f0',
-        brightWhite: '#ffffff',
-        selectionBackground: '#6c6cff33',
-      },
+      theme: currentTheme.terminal,
       fontFamily: '"JetBrains Mono", "Cascadia Code", "Fira Code", monospace',
       fontSize: 13,
       lineHeight: 1.4,

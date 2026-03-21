@@ -9,6 +9,7 @@ import { useNotes } from './hooks/useNotes';
 import { useAI } from './hooks/useAI';
 import { useTerminalStore } from './store/terminalStore';
 import { useSessionStore } from './store/sessionStore';
+import { useThemeStore } from './store/themeStore';
 
 const APIKeyModal: React.FC<{
   onSave: (key: string) => void;
@@ -59,6 +60,7 @@ const App: React.FC = () => {
   const { tabs, activeTabId, addTab } = useTerminalStore();
   const context = useSessionStore(s => s.context);
   const setTarget = useSessionStore(s => s.setTarget);
+  const initTheme = useThemeStore(s => s.initTheme);
 
   const {
     filteredNotes,
@@ -85,8 +87,9 @@ const App: React.FC = () => {
     openModal,
   } = useAI();
 
-  // Create first tab on mount
+  // Init theme + create first tab on mount
   useEffect(() => {
+    initTheme();
     if (tabs.length === 0) {
       addTab();
     }
