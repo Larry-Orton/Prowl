@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 interface TerminalStore {
   tabs: TerminalTab[];
   activeTabId: string | null;
-  addTab: () => string;
+  addTab: (shellType?: 'local' | 'kali') => string;
   removeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
   renameTab: (id: string, title: string) => void;
@@ -15,12 +15,14 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   tabs: [],
   activeTabId: null,
 
-  addTab: () => {
+  addTab: (shellType: 'local' | 'kali' = 'local') => {
     const id = uuidv4();
     const tabNumber = get().tabs.length + 1;
+    const title = shellType === 'kali' ? `Kali ${tabNumber}` : `Shell ${tabNumber}`;
     const newTab: TerminalTab = {
       id,
-      title: `Shell ${tabNumber}`,
+      title,
+      shellType,
       isActive: true,
     };
     set((state) => ({

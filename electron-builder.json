@@ -8,6 +8,12 @@
     "dist/**/*",
     "node_modules/**/*"
   ],
+  "extraResources": [
+    {
+      "from": "docker",
+      "to": "docker"
+    }
+  ],
   "mac": {
     "category": "public.app-category.developer-tools",
     "target": ["dmg", "zip"]

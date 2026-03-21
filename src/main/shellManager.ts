@@ -1,10 +1,12 @@
 import * as pty from 'node-pty';
 import { WebContents } from 'electron';
 import os from 'os';
+import { containerManager } from './containerManager';
 
 interface ShellInstance {
   pty: pty.IPty;
   webContents: WebContents;
+  type: 'local' | 'kali';
 }
 
 class ShellManager {
@@ -27,13 +29,15 @@ class ShellManager {
     return process.env.HOME || process.env.USERPROFILE || os.homedir() || '/';
   }
 
-  spawn(id: string, webContents: WebContents): void {
+  private getRuntimePath(): string {
+    const rt = containerManager.getRuntime();
+    return rt || 'docker';
+  }
+
+  spawn(id: string, webContents: WebContents, type: 'local' | 'kali' = 'local'): void {
     if (this.shells.has(id)) {
       this.kill(id);
     }
-
-    const shell = this.getShellPath();
-    const cwd = this.getDefaultCwd();
 
     const env: { [key: string]: string } = {};
     for (const [key, value] of Object.entries(process.env)) {
@@ -44,7 +48,20 @@ class ShellManager {
     env.TERM = 'xterm-256color';
     env.COLORTERM = 'truecolor';
 
-    const ptyProcess = pty.spawn(shell, [], {
+    let shell: string;
+    let args: string[];
+    const cwd = this.getDefaultCwd();
+
+    if (type === 'kali') {
+      // Spawn into Docker/Podman container
+      shell = this.getRuntimePath();
+      args = ['exec', '-it', 'prowl-kali-env', '/bin/bash'];
+    } else {
+      shell = this.getShellPath();
+      args = [];
+    }
+
+    const ptyProcess = pty.spawn(shell, args, {
       name: 'xterm-256color',
       cols: 80,
       rows: 30,
@@ -65,7 +82,7 @@ class ShellManager {
       this.shells.delete(id);
     });
 
-    this.shells.set(id, { pty: ptyProcess, webContents });
+    this.shells.set(id, { pty: ptyProcess, webContents, type });
   }
 
   write(id: string, data: string): void {
@@ -106,6 +123,10 @@ class ShellManager {
 
   hasShell(id: string): boolean {
     return this.shells.has(id);
+  }
+
+  getShellType(id: string): 'local' | 'kali' | null {
+    return this.shells.get(id)?.type ?? null;
   }
 }
 

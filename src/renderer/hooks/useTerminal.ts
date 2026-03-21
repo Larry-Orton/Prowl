@@ -19,6 +19,7 @@ export type KeywordAction =
 
 interface UseTerminalOptions {
   tabId: string;
+  shellType?: 'local' | 'kali';
   containerRef: React.RefObject<HTMLDivElement>;
   onKeywordCommand: (action: KeywordAction) => void;
   onCommandRun: (cmd: string) => void;
@@ -27,6 +28,7 @@ interface UseTerminalOptions {
 
 export function useTerminal({
   tabId,
+  shellType = 'local',
   containerRef,
   onKeywordCommand,
   onCommandRun,
@@ -166,7 +168,7 @@ export function useTerminal({
         const { cols, rows } = term;
         // Banner BEFORE shell spawn so PowerShell init noise can't appear above it
         term.write(WELCOME_BANNER);
-        window.electronAPI.shell.spawn(tabId).then(() => {
+        window.electronAPI.shell.spawn(tabId, shellType).then(() => {
           if (cancelled) return;
           window.electronAPI.shell.resize(tabId, cols, rows);
           term.focus();

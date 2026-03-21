@@ -28,6 +28,7 @@ export interface CommandRecord {
 export interface TerminalTab {
   id: string;
   title: string;
+  shellType: 'local' | 'kali';
   isActive: boolean;
 }
 
@@ -47,8 +48,21 @@ export interface AIMessage {
   timestamp: string;
 }
 
+// ── Container Types ────────────────────────────
+
+export type ContainerRuntime = 'docker' | 'podman' | null;
+export type ContainerStatus = 'not_installed' | 'no_image' | 'stopped' | 'running';
+
+export interface VPNStatus {
+  connected: boolean;
+  ip?: string;
+  file?: string;
+}
+
+// ── Electron IPC APIs ──────────────────────────
+
 export interface ElectronShellAPI {
-  spawn: (id: string) => Promise<void>;
+  spawn: (id: string, type?: 'local' | 'kali') => Promise<void>;
   write: (id: string, data: string) => void;
   resize: (id: string, cols: number, rows: number) => void;
   onData: (callback: (id: string, data: string) => void) => (() => void);
@@ -76,6 +90,30 @@ export interface ElectronAIAPI {
   deleteApiKey: () => Promise<void>;
 }
 
+export interface ElectronContainerAPI {
+  detectRuntime: () => Promise<ContainerRuntime>;
+  getStatus: () => Promise<ContainerStatus>;
+  buildImage: () => Promise<void>;
+  start: () => Promise<void>;
+  stop: () => Promise<void>;
+  installTool: (name: string) => Promise<string>;
+  onBuildProgress: (callback: (line: string) => void) => (() => void);
+}
+
+export interface ElectronVPNAPI {
+  upload: (filePath: string) => Promise<string>;
+  connect: (filename: string) => Promise<string>;
+  disconnect: () => Promise<void>;
+  getStatus: () => Promise<VPNStatus>;
+  listFiles: () => Promise<string[]>;
+  selectFile: () => Promise<string | null>;
+}
+
+export interface ElectronBrowserAPI {
+  getSocksPort: () => Promise<number>;
+  capturePageContent: (url: string) => Promise<string>;
+}
+
 export interface ElectronDialogAPI {
   saveFile: (content: string, defaultName: string) => Promise<boolean>;
 }
@@ -92,6 +130,9 @@ export interface ElectronAPI {
   notes: ElectronNotesAPI;
   commands: ElectronCommandsAPI;
   ai: ElectronAIAPI;
+  container: ElectronContainerAPI;
+  vpn: ElectronVPNAPI;
+  browser: ElectronBrowserAPI;
   dialog: ElectronDialogAPI;
   window: ElectronWindowAPI;
 }

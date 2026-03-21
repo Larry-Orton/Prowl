@@ -2,6 +2,7 @@ import React, { useRef, useCallback, useEffect } from 'react';
 import { useTerminal, KeywordAction } from '../hooks/useTerminal';
 import { useSessionStore } from '../store/sessionStore';
 import { useThemeStore } from '../store/themeStore';
+import { useTerminalStore } from '../store/terminalStore';
 
 interface TerminalProps {
   tabId: string;
@@ -14,6 +15,8 @@ const Terminal: React.FC<TerminalProps> = ({ tabId, isActive, onKeywordCommand }
   const addRecentCommand = useSessionStore(s => s.addRecentCommand);
   const lastOutputRef = useRef('');
   const theme = useThemeStore(s => s.currentTheme);
+  const tabs = useTerminalStore(s => s.tabs);
+  const tab = tabs.find(t => t.id === tabId);
 
   const handleOutput = useCallback((data: string) => {
     lastOutputRef.current += data;
@@ -28,13 +31,13 @@ const Terminal: React.FC<TerminalProps> = ({ tabId, isActive, onKeywordCommand }
 
   const { term } = useTerminal({
     tabId,
+    shellType: tab?.shellType || 'local',
     containerRef: containerRef as React.RefObject<HTMLDivElement>,
     onKeywordCommand,
     onCommandRun: handleCommandRun,
     onOutput: handleOutput,
   });
 
-  // Live theme sync — update xterm theme without restarting
   useEffect(() => {
     if (term.current) {
       term.current.options.theme = theme.terminal;

@@ -4,6 +4,7 @@ import Terminal from './components/Terminal';
 import NotesPanel from './components/NotesPanel';
 import AIPanel from './components/AIPanel';
 import StatusBar from './components/StatusBar';
+import BrowserPanel from './components/BrowserPanel';
 import { KeywordAction } from './hooks/useTerminal';
 import { useNotes } from './hooks/useNotes';
 import { useAI } from './hooks/useAI';
@@ -56,7 +57,9 @@ const APIKeyModal: React.FC<{
 const App: React.FC = () => {
   const [showNotes, setShowNotes] = useState(true);
   const [showAI, setShowAI] = useState(false);
+  const [showBrowser, setShowBrowser] = useState(false);
   const [aiInitialInput, setAiInitialInput] = useState('');
+  const [socksPort, setSocksPort] = useState(1080);
   const { tabs, activeTabId, addTab } = useTerminalStore();
   const context = useSessionStore(s => s.context);
   const setTarget = useSessionStore(s => s.setTarget);
@@ -93,7 +96,16 @@ const App: React.FC = () => {
     if (tabs.length === 0) {
       addTab();
     }
+    // Get SOCKS port for browser
+    window.electronAPI.browser.getSocksPort().then(setSocksPort);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Handle browser page scan — sends page content to AI
+  const handlePageContent = useCallback(async (url: string, content: string) => {
+    setShowAI(true);
+    const question = `Analyze the attack surface of this web page at ${url}. Identify forms, inputs, scripts, comments, and potential vulnerabilities. Here is the extracted page content:\n\n\`\`\`json\n${content}\n\`\`\``;
+    await sendMessage(question, context, notes);
+  }, [sendMessage, context, notes]);
 
   const handleKeywordCommand = useCallback(async (action: KeywordAction) => {
     switch (action.type) {
@@ -101,17 +113,13 @@ const App: React.FC = () => {
         setTarget(action.ip);
         break;
       }
-
       case 'note': {
-        // Title is first few words, content is full text
         const words = action.text.split(' ');
         const title = words.slice(0, 5).join(' ');
         await quickSaveFromTerminal(title, action.text);
         break;
       }
-
       case 'notes_add': {
-        // Append to most recent note
         if (notes.length > 0) {
           const latest = notes[0];
           await saveNote({
@@ -125,9 +133,7 @@ const App: React.FC = () => {
         }
         break;
       }
-
       case 'add_last': {
-        // Get last output from session context and send to AI
         const lastOutput = context.lastCommandOutput;
         if (lastOutput) {
           setShowAI(true);
@@ -136,30 +142,25 @@ const App: React.FC = () => {
         }
         break;
       }
-
       case 'ask': {
         setShowAI(true);
         setAiInitialInput(action.question);
         break;
       }
-
       case 'help': {
         setShowAI(true);
         setAiInitialInput('What are the next steps I should take for this pentest engagement? Give me a structured methodology.');
         break;
       }
-
       case 'search': {
         setShowNotes(true);
         searchNotes(action.term);
         break;
       }
-
       case 'export_notes': {
         await exportNotes();
         break;
       }
-
       case 'commands': {
         setShowAI(true);
         setAiInitialInput(`Show me common ${action.tool} commands and usage examples for penetration testing. Format as a reference guide with code blocks.`);
@@ -173,7 +174,6 @@ const App: React.FC = () => {
 
   const handleQuickCommand = useCallback((cmd: string) => {
     if (activeTabId) {
-      // Write command text directly to the active shell (user can edit before pressing Enter)
       window.electronAPI.shell.write(activeTabId, cmd);
     }
   }, [activeTabId]);
@@ -188,18 +188,21 @@ const App: React.FC = () => {
     searchNotes(query);
   }, [searchNotes]);
 
+  // Find active tab's shell type
+  const activeTab = tabs.find(t => t.id === activeTabId);
+
   return (
     <div className="app-layout">
       <TitleBar
         showNotes={showNotes}
         showAI={showAI}
+        showBrowser={showBrowser}
         onToggleNotes={() => setShowNotes(v => !v)}
         onToggleAI={() => {
-          if (!showAI && !hasApiKey) {
-            openModal();
-          }
+          if (!showAI && !hasApiKey) openModal();
           setShowAI(v => !v);
         }}
+        onToggleBrowser={() => setShowBrowser(v => !v)}
       />
 
       <div className="main-content">
@@ -217,25 +220,56 @@ const App: React.FC = () => {
           />
         </div>
 
-        {/* Terminal Area */}
+        {/* Terminal + Browser Area */}
         <div className="terminal-area">
-          {tabs.map(tab => (
-            <div
-              key={tab.id}
-              data-tab-id={tab.id}
-              style={{
-                height: '100%',
-                display: tab.id === activeTabId ? 'flex' : 'none',
-                flexDirection: 'column',
-              }}
-            >
-              <Terminal
-                tabId={tab.id}
-                isActive={tab.id === activeTabId}
-                onKeywordCommand={handleKeywordCommand}
-              />
+          {showBrowser ? (
+            <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+              {/* Terminal half */}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+                {tabs.map(tab => (
+                  <div
+                    key={tab.id}
+                    data-tab-id={tab.id}
+                    style={{
+                      height: '100%',
+                      display: tab.id === activeTabId ? 'flex' : 'none',
+                      flexDirection: 'column',
+                    }}
+                  >
+                    <Terminal
+                      tabId={tab.id}
+                      isActive={tab.id === activeTabId}
+                      onKeywordCommand={handleKeywordCommand}
+                    />
+                  </div>
+                ))}
+              </div>
+              {/* Browser half */}
+              <div style={{ flex: 1, borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <BrowserPanel socksPort={socksPort} onPageContent={handlePageContent} />
+              </div>
             </div>
-          ))}
+          ) : (
+            <>
+              {tabs.map(tab => (
+                <div
+                  key={tab.id}
+                  data-tab-id={tab.id}
+                  style={{
+                    height: '100%',
+                    display: tab.id === activeTabId ? 'flex' : 'none',
+                    flexDirection: 'column',
+                  }}
+                >
+                  <Terminal
+                    tabId={tab.id}
+                    isActive={tab.id === activeTabId}
+                    onKeywordCommand={handleKeywordCommand}
+                  />
+                </div>
+              ))}
+            </>
+          )}
           {tabs.length === 0 && (
             <div style={{
               flex: 1,
@@ -274,7 +308,6 @@ const App: React.FC = () => {
         isThinking={isThinking}
       />
 
-      {/* API Key Modal */}
       {showApiKeyModal && (
         <APIKeyModal
           onSave={saveApiKey}
