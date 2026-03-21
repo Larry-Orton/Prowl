@@ -1,0 +1,24 @@
+node_modules/
+dist/
+release/
+*.log
+.env
+.env.*
+prowl-data.json
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Electron
+*.asar
+
+# Build artifacts
+*.tsbuildinfo
