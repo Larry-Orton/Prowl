@@ -1,8 +1,19 @@
-# PROWL
+<p align="center">
+  <img src="assets/logo.png" alt="PROWL" width="180" />
+</p>
 
-Intelligent pentester terminal — never leave the terminal.
+<h1 align="center">PROWL</h1>
 
-Electron + React + xterm.js + Claude AI
+<p align="center">
+  <strong>Intelligent pentester terminal — never leave the terminal.</strong><br/>
+  Electron + React + xterm.js + Claude AI
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/version-0.1.0-6c6cff?style=flat-square" />
+  <img src="https://img.shields.io/badge/electron-28-444466?style=flat-square" />
+  <img src="https://img.shields.io/badge/AI-Claude-8a8aff?style=flat-square" />
+</p>
 
 ## Quick Install
 

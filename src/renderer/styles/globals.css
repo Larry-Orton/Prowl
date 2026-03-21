@@ -134,18 +134,11 @@ code {
   height: 100%;
 }
 
-.brand-mark {
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--accent);
-  color: white;
-  font-size: 11px;
-  font-weight: 700;
-  border-radius: 5px;
-  letter-spacing: 0;
+.brand-logo {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  border-radius: 4px;
 }
 
 .brand-text {

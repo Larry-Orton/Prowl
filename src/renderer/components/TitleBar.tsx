@@ -75,7 +75,7 @@ const TitleBar: React.FC<TitleBarProps> = ({
 
         {/* Brand */}
         <div className="titlebar-brand">
-          <span className="brand-mark">P</span>
+          <img src={new URL('../assets/logo.png', import.meta.url).href} alt="PROWL" className="brand-logo" />
           <span className="brand-text">PROWL</span>
         </div>
 
