@@ -14,6 +14,7 @@ import type { AIMessageAction, MissionModeId } from '@shared/types';
 import { DEFAULT_ENGAGEMENT_ID, CRITICAL_PORTS } from '@shared/constants';
 import type { KeywordAction } from '@shared/terminalKeywords';
 import { inferMissionMode, MISSION_MODE_META } from './lib/missionMode';
+import { resolveNotebookAIIntent, type NotebookAIIntent } from './lib/notebookAI';
 import { useEngagements } from './hooks/useEngagements';
 import { useNotes } from './hooks/useNotes';
 import { useCommands } from './hooks/useCommands';
@@ -739,6 +740,9 @@ const App: React.FC = () => {
     lastMessageCountRef.current = messages.length;
 
     newMessages.forEach(msg => {
+      if (msg.logToNotebook === false) {
+        return;
+      }
       if (msg.role === 'user') {
         appendToNotebook(`\n[ASK] ${msg.content}`);
       } else if (msg.role === 'assistant' && (msg.variant ?? 'chat') === 'chat') {
@@ -755,6 +759,119 @@ const App: React.FC = () => {
     const title = lines[0].slice(0, 60) || 'AI Note';
     await quickSaveFromAI(title, content);
   }, [quickSaveFromAI]);
+
+  const backupNotebookTitle = useCallback((title: string) => {
+    const stamp = new Date().toISOString().replace(/[:]/g, '-').replace(/\..+$/, '');
+    return `${title} - raw backup ${stamp}`;
+  }, []);
+
+  const applyNotebookAIIntent = useCallback(async (intent: NotebookAIIntent, content: string) => {
+    const cleanedContent = content.trim();
+    if (!cleanedContent) {
+      return;
+    }
+
+    if (intent.mode === 'replace') {
+      if (intent.targetNotebook?.content.trim()) {
+        await saveNote({
+          title: backupNotebookTitle(intent.targetNotebook.title),
+          content: intent.targetNotebook.content,
+          source: intent.targetNotebook.source,
+          tags: intent.targetNotebook.tags,
+        });
+      }
+
+      const saved = await saveNote({
+        id: intent.targetNotebook?.id,
+        title: intent.notebookTitle,
+        content: cleanedContent,
+        source: 'ai',
+        tags: intent.targetNotebook?.tags ?? ['walkthrough', 'ai'],
+      });
+
+      setActiveNotebook(saved.id, saved.title);
+      setSelectedNote(saved.id);
+      setShowNotes(true);
+      appendProactiveMessage(
+        `Notebook ${saved.title} now has a cleaned walkthrough version. PROWL also kept a raw backup of the previous notebook contents.`,
+        'suggestion',
+        {
+          eventKey: `notebook-rewrite:${saved.id}:${saved.updatedAt}`,
+          cooldownMs: 1000,
+        }
+      );
+      return;
+    }
+
+    if (intent.targetNotebook) {
+      const mergedContent = intent.targetNotebook.content.trim()
+        ? `${intent.targetNotebook.content}\n\n${cleanedContent}`
+        : cleanedContent;
+      const saved = await saveNote({
+        id: intent.targetNotebook.id,
+        title: intent.targetNotebook.title,
+        content: mergedContent,
+        source: 'ai',
+        tags: intent.targetNotebook.tags,
+      });
+      setActiveNotebook(saved.id, saved.title);
+      setSelectedNote(saved.id);
+    } else {
+      const saved = await quickSaveFromAI(intent.notebookTitle, cleanedContent);
+      if (saved) {
+        setActiveNotebook(saved.id, saved.title);
+        setSelectedNote(saved.id);
+      }
+    }
+
+    setShowNotes(true);
+    appendProactiveMessage(
+      `Notebook ${intent.notebookTitle} was updated with AI-organized walkthrough notes.`,
+      'suggestion',
+      {
+        eventKey: `notebook-append:${intent.notebookTitle}:${Date.now()}`,
+        cooldownMs: 1000,
+      }
+    );
+  }, [
+    appendProactiveMessage,
+    backupNotebookTitle,
+    quickSaveFromAI,
+    saveNote,
+    setActiveNotebook,
+    setSelectedNote,
+  ]);
+
+  const handleAISendMessage = useCallback(async (
+    content: string,
+    currentContext: typeof context,
+    currentNotes: typeof notes
+  ) => {
+    const notebookIntent = resolveNotebookAIIntent(content, currentNotes, activeNotebookId);
+    const assistantMessage = await sendMessage(
+      content,
+      currentContext,
+      currentNotes,
+      notebookIntent
+        ? {
+            supplementalContext: notebookIntent.supplementalContext,
+            logToNotebook: false,
+          }
+        : undefined
+    );
+
+    if (!notebookIntent || !assistantMessage || assistantMessage.role !== 'assistant' || assistantMessage.variant === 'warning') {
+      return;
+    }
+
+    await applyNotebookAIIntent(notebookIntent, assistantMessage.content);
+  }, [
+    activeNotebookId,
+    applyNotebookAIIntent,
+    notes,
+    context,
+    sendMessage,
+  ]);
 
   const handleSearchChange = useCallback((query: string) => {
     searchNotes(query);
@@ -1598,7 +1715,7 @@ const App: React.FC = () => {
             messages={messages}
             isThinking={isThinking}
             hasApiKey={hasApiKey}
-            onSendMessage={sendMessage}
+            onSendMessage={handleAISendMessage}
             onSaveToNotes={handleSaveToNotes}
             onRunCommand={handleQuickCommand}
             onOpenApiModal={openModal}

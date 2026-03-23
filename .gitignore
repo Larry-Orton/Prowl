@@ -13,6 +13,7 @@ Desktop.ini
 
 # Claude session memory
 .claude-session.md
+Documents/
 
 # IDE
 .vscode/

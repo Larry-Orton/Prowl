@@ -103,6 +103,7 @@ export interface AIMessage {
   content: string;
   timestamp: string;
   actions?: AIMessageAction[];
+  logToNotebook?: boolean;
 }
 
 export interface AIMessageAction {

@@ -3,6 +3,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { AIMessage, AIMessageAction, ActiveContext, Note, MissionMode } from '@shared/types';
 import { useMissionModeStore } from '../store/missionModeStore';
 
+interface SendMessageOptions {
+  supplementalContext?: string;
+  logToNotebook?: boolean;
+}
+
 function formatTerminalActivity(context: ActiveContext): string {
   if (context.terminalSessions.length === 0) {
     return '(none)';
@@ -43,7 +48,12 @@ function formatTerminalActivity(context: ActiveContext): string {
     .join('\n');
 }
 
-function buildSystemPrompt(context: ActiveContext, notes: Note[], missionMode: MissionMode): string {
+function buildSystemPrompt(
+  context: ActiveContext,
+  notes: Note[],
+  missionMode: MissionMode,
+  supplementalContext?: string
+): string {
   return `You are an expert penetration tester AI assistant embedded inside Prowl, an intelligent pentester terminal application.
 
 ## Current Session
@@ -60,6 +70,10 @@ ${formatTerminalActivity(context)}
 
 Session Notes:
 ${notes.map(n => `- ${n.title}: ${n.content.slice(0, 200)}`).join('\n') || '(none)'}
+
+${supplementalContext ? `Focused Notebook Context:
+${supplementalContext}
+` : ''}
 
 ## Kali Environment
 The user is working inside a PROWL Kali container (kalilinux/kali-rolling). Always give commands and paths that work in this environment.
@@ -89,13 +103,17 @@ The user is working inside a PROWL Kali container (kalilinux/kali-rolling). Alwa
 ### Workspace
 The user's workspace is mounted at /workspace. Use this for saving output, scripts, and loot.
 
-## Web Search
-You have a web_search tool available. USE IT when the user asks about:
+## Web Tools
+You have two web tools available:
+- web_search: search the web for current results and URLs
+- web_fetch: fetch the readable contents of a specific web page
+
+USE THEM when the user asks about:
 - Specific CVEs, exploits, or vulnerabilities
 - Current tool documentation or usage
 - Writeups, walkthroughs, or techniques
 - Any topic where up-to-date information would help
-Do NOT say you cannot search the web — you CAN. Use the web_search tool.
+Do NOT say you cannot search the web — you CAN. Search first, then fetch relevant pages when the actual article contents matter.
 
 ## Response Guidelines
 - Provide concise, actionable penetration testing guidance
@@ -112,7 +130,12 @@ export interface UseAIReturn {
   isThinking: boolean;
   hasApiKey: boolean;
   showApiKeyModal: boolean;
-  sendMessage: (content: string, context: ActiveContext, notes: Note[]) => Promise<void>;
+  sendMessage: (
+    content: string,
+    context: ActiveContext,
+    notes: Note[],
+    options?: SendMessageOptions
+  ) => Promise<AIMessage | null>;
   saveApiKey: (key: string) => void;
   dismissModal: () => void;
   openModal: () => void;
@@ -164,7 +187,8 @@ export function useAI(): UseAIReturn {
     role: 'user' | 'assistant',
     content: string,
     variant: AIMessage['variant'] = 'chat',
-    actions?: AIMessageAction[]
+    actions?: AIMessageAction[],
+    logToNotebook = true
   ) => {
     const msg: AIMessage = {
       id: uuidv4(),
@@ -173,6 +197,7 @@ export function useAI(): UseAIReturn {
       content,
       timestamp: new Date().toISOString(),
       actions,
+      logToNotebook,
     };
     setMessages(prev => [...prev, msg]);
     return msg;
@@ -203,12 +228,15 @@ export function useAI(): UseAIReturn {
   const sendMessage = useCallback(async (
     content: string,
     context: ActiveContext,
-    notes: Note[]
+    notes: Note[],
+    options?: SendMessageOptions
   ) => {
     if (!hasApiKey) {
       setShowApiKeyModal(true);
-      return;
+      return null;
     }
+
+    const logToNotebook = options?.logToNotebook ?? true;
 
     // Add user message
     const userMsg: AIMessage = {
@@ -217,6 +245,7 @@ export function useAI(): UseAIReturn {
       variant: 'chat',
       content,
       timestamp: new Date().toISOString(),
+      logToNotebook,
     };
     setMessages(prev => [...prev, userMsg]);
     setIsThinking(true);
@@ -229,7 +258,12 @@ export function useAI(): UseAIReturn {
         content: m.content,
       }));
 
-      const systemPrompt = buildSystemPrompt(context, notes, useMissionModeStore.getState().mode);
+      const systemPrompt = buildSystemPrompt(
+        context,
+        notes,
+        useMissionModeStore.getState().mode,
+        options?.supplementalContext
+      );
 
       // Call through main process proxy — API key never touches renderer
       const assistantContent = await window.electronAPI.ai.send(apiMessages, systemPrompt);
@@ -240,8 +274,10 @@ export function useAI(): UseAIReturn {
         variant: 'chat',
         content: assistantContent,
         timestamp: new Date().toISOString(),
+        logToNotebook,
       };
       setMessages(prev => [...prev, assistantMsg]);
+      return assistantMsg;
 
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Unknown error';
@@ -259,8 +295,10 @@ export function useAI(): UseAIReturn {
         variant: 'warning',
         content: `Error: ${errMsg}`,
         timestamp: new Date().toISOString(),
+        logToNotebook: false,
       };
       setMessages(prev => [...prev, errAssistant]);
+      return errAssistant;
     } finally {
       setIsThinking(false);
     }

@@ -146,25 +146,15 @@ const TitleBar: React.FC<TitleBarProps> = ({
     if (tabs.length > 1) removeTab(id);
   }, [tabs.length, removeTab]);
 
-  const handleTitlebarMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest('button, .tab-item, .titlebar-tabs, .titlebar-traffic, .titlebar-right, .new-tab-menu')) return;
-    if (e.button !== 0) return;
-    const startX = e.screenX;
-    const startY = e.screenY;
-    const onMove = (me: MouseEvent) => {
-      window.electronAPI.window.dragMove(me.screenX - startX, me.screenY - startY);
-    };
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+  // Drag is handled natively by -webkit-app-region: drag in CSS.
+  // Double-click titlebar to maximize/restore.
+  const handleTitlebarDoubleClick = useCallback(() => {
+    window.electronAPI.window.maximize();
   }, []);
 
   return (
     <>
-      <div className="titlebar" onMouseDown={handleTitlebarMouseDown}>
+      <div className="titlebar" onDoubleClick={handleTitlebarDoubleClick}>
         <div className="titlebar-traffic">
           <button className="traffic-btn traffic-close" onClick={handleClose} aria-label="Close" />
           <button className="traffic-btn traffic-minimize" onClick={handleMinimize} aria-label="Minimize" />
@@ -344,7 +334,13 @@ const TitleBar: React.FC<TitleBarProps> = ({
           onOpenNote={onOpenTimelineNote}
         />
       )}
-      {showNotebook && <NotebookViewer notes={allNotes} onClose={() => setShowNotebook(false)} />}
+      {showNotebook && (
+        <NotebookViewer
+          notes={allNotes}
+          notebookTitle={currentEngagementName ? `${currentEngagementName} Notebook` : 'Prowl Field Notebook'}
+          onClose={() => setShowNotebook(false)}
+        />
+      )}
     </>
   );
 };
