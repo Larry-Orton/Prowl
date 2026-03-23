@@ -75,7 +75,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     metasploit-framework \
     exploitdb \
-    searchsploit \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Password Attacks ────────────────────────────
@@ -100,6 +99,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # ── Wordlists setup ────────────────────────────
 RUN gunzip /usr/share/wordlists/rockyou.txt.gz 2>/dev/null || true
+# Symlink common paths so standard tutorials/commands work out of the box
+RUN ln -sf /usr/share/seclists/Discovery/Web-Content /usr/share/wordlists/dirbuster \
+    && ln -sf /usr/share/seclists /usr/share/wordlists/seclists
 
 # ── SOCKS proxy for PROWL embedded browser ─────
 # microsocks listens on port 1080 for browser traffic

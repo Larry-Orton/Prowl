@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Note } from '@shared/types';
 import { useNotesStore } from '../store/notesStore';
 import { useSessionStore } from '../store/sessionStore';
+import { useEngagementStore } from '../store/engagementStore';
 
 export function useNotes() {
   const {
@@ -21,13 +22,13 @@ export function useNotes() {
   } = useNotesStore();
 
   const addSessionNote = useSessionStore(s => s.addSessionNote);
+  const currentEngagementId = useEngagementStore(s => s.currentEngagementId);
 
   // Load notes on mount
   useEffect(() => {
-    if (!isLoaded) {
-      window.electronAPI.notes.getAll().then(setNotes).catch(console.error);
-    }
-  }, [isLoaded, setNotes]);
+    if (!currentEngagementId && isLoaded) return;
+    window.electronAPI.notes.getAll(currentEngagementId ?? undefined).then(setNotes).catch(console.error);
+  }, [currentEngagementId, isLoaded, setNotes]);
 
   const saveNote = useCallback(async (partial: Partial<Note> & { title: string; content: string }) => {
     const note: Partial<Note> & { id: string } = {
@@ -36,6 +37,7 @@ export function useNotes() {
       content: partial.content,
       tags: partial.tags ?? [],
       source: partial.source ?? 'manual',
+      engagementId: partial.engagementId ?? currentEngagementId ?? undefined,
     };
 
     try {
@@ -51,7 +53,7 @@ export function useNotes() {
       console.error('Failed to save note:', err);
       throw err;
     }
-  }, [notes, addNote, updateNote, addSessionNote]);
+  }, [notes, addNote, updateNote, addSessionNote, currentEngagementId]);
 
   const deleteNote = useCallback(async (id: string) => {
     try {
@@ -66,20 +68,20 @@ export function useNotes() {
     setSearchQuery(query);
     if (query.trim()) {
       try {
-        const results = await window.electronAPI.notes.search(query);
+        const results = await window.electronAPI.notes.search(query, currentEngagementId ?? undefined);
         setNotes(results);
       } catch (err) {
         console.error('Search failed:', err);
       }
     } else {
       try {
-        const all = await window.electronAPI.notes.getAll();
+        const all = await window.electronAPI.notes.getAll(currentEngagementId ?? undefined);
         setNotes(all);
       } catch (err) {
         console.error('Failed to reload notes:', err);
       }
     }
-  }, [setNotes, setSearchQuery]);
+  }, [currentEngagementId, setNotes, setSearchQuery]);
 
   const exportNotes = useCallback(async () => {
     const allNotes = notes;
@@ -110,6 +112,6 @@ export function useNotes() {
     setSelectedNote,
     quickSaveFromTerminal,
     quickSaveFromAI,
-    reloadNotes: () => window.electronAPI.notes.getAll().then(setNotes),
+    reloadNotes: () => window.electronAPI.notes.getAll(currentEngagementId ?? undefined).then(setNotes),
   };
 }

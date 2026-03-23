@@ -1,216 +1,318 @@
 <p align="center">
-  <img src="assets/logo.png" alt="PROWL" width="180" />
+  <img src="assets/logo.png" alt="PROWL" width="220" />
 </p>
 
 <h1 align="center">PROWL</h1>
 
 <p align="center">
-  <strong>Intelligent pentester terminal — never leave the terminal.</strong><br/>
-  AI-assisted hacking with a built-in Kali container, smart notes, and embedded browser.
+  <strong>The pentest terminal that refuses to act like "just a terminal."</strong>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.1.0-6c6cff?style=flat-square" />
-  <img src="https://img.shields.io/badge/electron-28-444466?style=flat-square" />
-  <img src="https://img.shields.io/badge/AI-Claude-8a8aff?style=flat-square" />
-  <img src="https://img.shields.io/badge/Kali-Docker-22c55e?style=flat-square" />
+  Local shell. Kali container. Embedded browser. Smart notes. Structured findings. Mission timeline. Proactive AI.
+</p>
+
+<p align="center">
+  If a terminal, a field notebook, and a slightly overinvested operator buddy moved into the same control room, this would be the result.
 </p>
 
 ---
 
-## What is PROWL?
+## What PROWL Actually Is
 
-PROWL is a terminal emulator built for hackers and pentesters. It ships with:
+PROWL is an Electron desktop app for pentesters and security operators who are tired of working across fourteen windows, six sticky notes, three browser tabs, and one terminal session that absolutely should not still be alive but somehow is.
 
-- **Built-in Kali Linux container** — 30+ pentest tools ready to go, no VM needed
-- **AI assistant (Claude)** — sees your terminal output, notes, and browser pages to help you hack
-- **Smart notes** — type what you're thinking, AI organizes it for you
-- **Embedded browser** — browse target web apps side-by-side with your terminal, routed through the container's network
-- **VPN management** — upload your .ovpn file, connect with one click, green light when connected
-- **6 themes** — Midnight, Blood Moon, Ghost Protocol, Phosphor, Arctic, Venom (switch instantly, no restart)
-- **Command history with target substitution** — search past commands, auto-rewritten with your current target IP
+It gives you one cockpit for:
 
-Works on **Windows, macOS, and Linux**. The Kali container means you get a full pentesting environment regardless of your host OS.
+- running local or Kali-backed terminals
+- tracking an engagement instead of a random pile of commands
+- collecting findings, notes, loot, and browser recon in one place
+- getting AI help that can react to what is happening, not just what you type
 
----
+This means PROWL is not trying to replace your workflow. It is trying to stop your workflow from becoming a crime scene.
 
-## Prerequisites
+## Why It Feels Different
 
-You need **Node.js 18+** installed on your machine.
+Most terminal tools do one thing well.
+PROWL is built around the whole mission.
 
-**Windows:**
-```powershell
-winget install OpenJS.NodeJS.LTS
-```
+| Surface | What it does |
+| --- | --- |
+| **Engagements** | Separate targets, notes, command history, findings, and loot by project |
+| **Proactive AI** | Suggests next moves when targets, ports, services, browser scans, VPN, or loot change |
+| **Findings** | Captures structured discoveries like targets, ports, services, and files |
+| **Mission Timeline** | Shows what happened, in order, across commands, notes, findings, AI, and events |
+| **Loot Manager** | Browses `/workspace` artifacts, previews files, promotes loot into findings, and saves notes |
+| **Mission Modes** | Keeps the app focused on web, windows, internal, exploit, credential, DNS, or recon workflows |
+| **Split Terminals** | Work side-by-side instead of pretending you only need one shell |
+| **Command Palette** | Jump to panels, tabs, engagements, and common actions with `Ctrl/Cmd+K` |
+| **Browser + VPN** | Explore web targets through the Kali network path without leaving the app |
 
-**macOS:**
-```bash
-brew install node
-```
+## What You Need
 
-**Linux (Debian/Ubuntu):**
-```bash
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt-get install -y nodejs
-```
+| Requirement | Why |
+| --- | --- |
+| **Docker or Podman** | Needed for the Kali container, VPN, SOCKS-routed browser access, and `/workspace` tooling |
+| **Anthropic API key** | Needed for AI features |
+| **Authorization** | Needed because "I was curious" is not a pentest scope |
 
-After installing Node.js, **close and reopen your terminal** so `npm` is available.
+Good news:
 
-For the Kali container features, you also need **Docker** or **Podman**:
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/Mac)
-- `sudo apt install docker.io` (Linux)
-- PROWL auto-detects which one you have
+- You do **not** need Node.js to install or use the packaged app.
+- PROWL still works without Docker/Podman if you only want the local shell, notes, findings UI, mission timeline, command palette, and engagement flow.
+- PROWL still works without an API key if you want the terminal and operator workflow without AI.
 
----
+## Install PROWL
 
-## Quick Start
+### Recommended: Install The Real App
 
-### Option 1: One-Command Install
+If you are here to use PROWL and not accidentally adopt a build pipeline, install the packaged release:
 
-**Linux / macOS:**
-```bash
-curl -fsSL https://raw.githubusercontent.com/Larry-Orton/Prowl/master/scripts/install.sh | bash
-```
+- **GitHub Releases**: `https://github.com/Larry-Orton/Prowl/releases`
 
-**Windows (PowerShell as Admin):**
-```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/Larry-Orton/Prowl/master/scripts/install.ps1 | iex
-```
+Download the installer that matches your platform:
 
-The installer handles everything: git, Node.js, C++ build tools, and native module compilation.
+- **Windows**: `nsis` installer or `portable`
+- **macOS**: `dmg` or `zip`
+- **Linux**: `AppImage` or `deb`
 
-### Option 2: Manual Setup
+That is the normal user path.
+That is the blessed path.
+That is the path where you do not end up explaining Electron rebuild logs to your future self.
 
-```bash
-git clone https://github.com/Larry-Orton/Prowl.git
-cd Prowl
-npm run setup
-npm run electron:dev
-```
+### Install In About 60 Seconds
 
-That's it. Three commands and you're in.
+1. Open the latest release.
+2. Download the file for your OS.
+3. Install it like a normal desktop app.
+4. Launch PROWL.
+5. Set your API key if you want AI features.
+6. Build/start the Kali container if you want the full cockpit.
 
-### Option 3: Already cloned? Just run it.
+### If You Do Not See A Release Yet
 
-```bash
-cd Prowl
-npm run setup          # first time only — installs deps + compiles native modules
-npm run electron:dev   # launches PROWL
-```
+That means the packaged build has not been published yet for your platform.
 
----
+You can still build from source, but that is now a **developer workflow**, not the recommended user install. Those steps live below in [For Developers](#for-developers).
 
-## First Launch
+## First Launch: The Good Path
 
-1. **PROWL opens** with a local shell tab
-2. Click the **AI button** (layers icon, top-right) to set your Anthropic API key
-3. Click the **container icon** (monitor icon, top-right) to set up Kali:
-   - Click **Build Kali Image** (one-time, ~2-4 GB download)
-   - Click **Start** to launch the container
-4. Click **+** next to your tabs and choose **Kali Terminal** — you're now in a full Kali environment
-5. Upload your **.ovpn file** in the container panel to connect to HTB/THM
+Here is the fastest way to stop staring at the UI and start using it:
 
----
+1. Launch PROWL from your installed app.
+2. Open the AI panel and add your Anthropic API key.
+3. Open the Kali/container panel and build the image if you have not already.
+4. Start the Kali container.
+5. Create or select an engagement.
+6. Set your target with `target <ip-or-host>`.
+7. Use `Ctrl/Cmd+K` to open the command palette and jump where you need to go.
+8. Start recon. PROWL will begin building findings, timeline events, notes, and suggestions around what you do.
 
-## Terminal Commands
+That is the intended flow.
+Not "open five apps and promise yourself you will organize it later."
 
-Type these directly in the terminal — PROWL intercepts them before the shell:
+## Five-Minute Mental Model
+
+If you are new to PROWL, these terms matter:
+
+| Term | Meaning |
+| --- | --- |
+| **Engagement** | The project you are working on. It owns target context, notes, findings, command history, and workspace view |
+| **Finding** | A structured discovery like a target, open port, service, file, URL, or AI-saved note |
+| **Loot** | Files captured in the engagement workspace |
+| **Mission Mode** | PROWL's opinion about what phase you are in: recon, web, windows, internal, exploit, and so on |
+| **Timeline** | A chronological feed of commands, notes, findings, AI messages, and mission events |
+| **Objective Card** | The "what matters right now" summary at the top of the AI panel |
+
+## Terminal Keywords
+
+These commands are intercepted by PROWL before they hit the shell:
 
 | Command | What it does |
-|---|---|
-| `target <ip>` | Set your active target |
-| `note <text>` | Save a note (just say what you're thinking) |
-| `notes add <text>` | Append to your last note |
-| `add last <tool>` | Send last command output to AI for analysis |
-| `ask <question>` | Ask the AI anything |
-| `help` | Get pentest methodology guidance |
-| `search <term>` | Search your notes |
-| `export notes` | Export all notes as markdown |
-| `commands <tool>` | Get a reference guide for any tool (nmap, sqlmap, etc.) |
+| --- | --- |
+| `target <ip>` | Set the active target for the current engagement |
+| `note <text>` | Save a note |
+| `notes add <text>` | Append to the active note or notebook |
+| `note #<n> <text>` | Append to a specific note by index |
+| `notebook <name>` | Open or reuse a notebook with that name |
+| `notebook new <name>` | Create a fresh notebook |
+| `notebook close` | Close the active notebook |
+| `add last <tool>` | Send the last command output to AI for analysis |
+| `ask <question>` | Ask AI directly |
+| `commands <tool>` | Ask AI for a tool reference guide |
+| `search <term>` | Search notes |
+| `export notes` | Export notes to Markdown |
+| `help` | Open command help |
+| `hack help` | Ask AI for methodology guidance |
 
----
+## Buttons Worth Knowing
 
-## Features
+If you never read title bars and just click whatever looks suspicious, here is the cheat sheet:
+
+- **Palette button**: opens the command palette
+- **Engagements button**: switch projects
+- **Mission mode button**: pin or release the current mode
+- **Split button**: turn one terminal into two
+- **Loot button**: open the loot manager
+- **Findings button**: open structured discoveries
+- **Timeline button**: open the mission feed
+- **Notebook button**: open notebook view
+- **AI button**: open the assistant panel
+- **Browser button**: open the embedded browser
+
+## What The AI Can Do
+
+The AI is not just a chat box anymore.
+
+It can:
+
+- respond to normal prompts
+- react to target changes, discovered ports, services, browser scans, VPN state, container state, and new loot
+- suggest commands before you ask
+- create notes
+- save findings
+- open browser or workflow surfaces
+- follow the current mission mode
+
+The intended experience is "operator copiloting," not "tab with opinions."
+
+## Kali, Browser, VPN, and Loot
 
 ### Kali Container
-- 30+ tools pre-installed: nmap, masscan, gobuster, feroxbuster, sqlmap, hydra, john, hashcat, metasploit, impacket, evil-winrm, crackmapexec, amass, subfinder, nikto, and more
-- Wordlists ready (rockyou.txt unzipped, SecLists installed)
-- Your workspace is mounted at `/workspace` — files persist between sessions
-- Missing a tool? It auto-installs inside the container
 
-### AI Assistant
-- Sees your terminal output, notes, and browser page content
-- Context-aware — knows your target, open ports, discovered services
-- Click **Scan** in the browser to send page content (forms, scripts, comments) to AI for attack surface analysis
-- API key is encrypted and stored securely — never touches the browser
+With Docker or Podman available, PROWL can run a Kali environment inside the app.
 
-### VPN
-- Upload `.ovpn` files through the UI
-- One-click connect/disconnect
-- Green shield icon when connected, gray when not
-- VPN runs inside the container so all tools route through the tunnel
+That unlocks:
 
-### Browser
-- Embedded Chromium browser, side-by-side with your terminal
-- Routes through the container's SOCKS proxy — can reach VPN targets (10.10.10.x)
-- **Scan** button extracts page structure and sends to AI
+- Kali-backed terminal tabs
+- mounted `/workspace` storage
+- browser routing through a SOCKS proxy
+- VPN workflows inside the tooling environment
 
-### Themes
-Click the sun icon in the title bar to switch between 6 themes instantly:
-- **Midnight** — deep indigo (default)
-- **Blood Moon** — crimson red
-- **Ghost Protocol** — monochrome stealth
-- **Phosphor** — retro green CRT
-- **Arctic** — cold blue steel
-- **Venom** — toxic purple
+### Embedded Browser
 
----
+The browser panel is there for actual recon, not moral support.
 
-## Build a Packaged App
+Use it to:
+
+- browse target web apps inside the app
+- scan a page and send extracted structure to AI
+- keep browser and terminal side-by-side during web work
+
+### Loot Manager
+
+The loot manager lets you:
+
+- browse workspace files by engagement
+- preview text files
+- classify loot by type
+- promote artifacts into findings
+- save loot directly into notes
+
+It also works off the host workspace path, which means your loot is still visible even if the Kali container is not currently running.
+
+## Build A Packaged App
+
+If you are building PROWL from source and want installers instead of a dev session:
 
 ```bash
 npm run electron:build
 ```
 
-Outputs to `release/` — creates installers for your platform (`.exe`, `.dmg`, `.AppImage`, `.deb`).
+Artifacts are written to `release/`.
 
----
+Current packaging targets:
 
-## Architecture
+- **Windows**: `nsis`, `portable`
+- **macOS**: `dmg`, `zip`
+- **Linux**: `AppImage`, `deb`
 
+## For Developers
+
+You do not need this section to use PROWL.
+You do need it if you are about to open twelve files and say "I will just trace the flow real quick."
+
+### Source Build Setup
+
+This section is for contributors, local builders, and people intentionally working on the codebase.
+It is **not** the recommended install path for regular users.
+
+Requirements for source builds:
+
+- **Node.js 18+**
+- **npm**
+- native build prerequisites for `node-pty`
+- optionally **Docker** or **Podman** for the Kali container features
+
+Source build flow:
+
+```bash
+git clone https://github.com/Larry-Orton/Prowl.git
+cd Prowl
+npm run setup
+npm run electron:build
 ```
+
+Important:
+
+- Use `npm run setup`, not plain `npm install`, because PROWL rebuilds native Electron dependencies for Electron.
+- If `node` or `npm` are "not found" right after install, close and reopen your terminal so PATH updates apply.
+- This README intentionally does **not** tell users to run `npm run electron:dev`. That is an internal debugging workflow, opens DevTools behavior, and does not reflect the normal packaged PROWL experience.
+
+```text
 src/
   main/                 Electron main process
-    index.ts            Entry point, IPC handlers
-    shellManager.ts     PTY shell management (local + container)
-    containerManager.ts Docker/Podman lifecycle, VPN, tool install
-    aiProxy.ts          Claude API proxy (API key stays in main process)
-    preload.ts          Context bridge for renderer
-  renderer/             React SPA
-    components/         Terminal, NotesPanel, AIPanel, BrowserPanel,
-                        StatusBar, TitleBar, ThemePicker, ContainerPanel
-    hooks/              useTerminal, useNotes, useAI
-    store/              Zustand stores (terminal, notes, session, theme)
-    themes.ts           6 theme definitions with xterm color sync
+    index.ts            IPC handlers, workspace access, browser capture
+    shellManager.ts     Local + Kali shell orchestration
+    containerManager.ts Docker/Podman lifecycle, VPN, tool environment
+    aiProxy.ts          AI proxying from the trusted side
+    preload.ts          Renderer bridge
+
+  renderer/             React app
+    App.tsx             Main orchestration layer
+    components/         Terminal, AI, notes, timeline, findings, loot, title bar
+    hooks/              Engagement, AI, notes, commands, findings, proactive logic
+    store/              Zustand state for session, terminals, mission mode, findings, etc.
+    lib/                Mission mode and proactive hint logic
+
   db/
-    client.ts           JSON persistence (notes, commands, encrypted API key)
+    client.ts           JSON persistence for engagements, notes, commands, findings, API key
+
   shared/
-    types.ts            Shared TypeScript interfaces
-    constants.ts        App constants, tool configs, regex patterns
+    types.ts            Shared interfaces
+    constants.ts        Shared constants
+    terminalKeywords.ts Terminal keyword parser
+
 docker/
-  Dockerfile            Lean Kali image with pentest tools
-  entrypoint.sh         SOCKS proxy + VPN auto-connect
+  Dockerfile            Kali image
+  entrypoint.sh         Container startup behavior
+
 scripts/
-  setup.js              Native module compilation for Electron
-  install.sh            One-liner installer (Linux/macOS)
-  install.ps1           One-liner installer (Windows)
+  setup.js              Electron/native dependency setup
+  install.sh            Linux/macOS installer
+  install.ps1           Windows installer
 ```
 
----
+Helpful commands:
+
+```bash
+npm run setup
+npm run build
+npm run electron:build
+npm run typecheck
+```
+
+## A Brief And Necessary Legal Vibe Check
+
+Use PROWL on systems you own or are explicitly authorized to assess.
+
+If you point it at something you should not be touching, that is not "research."
+That is paperwork.
 
 ## Contributing
 
-Pull requests welcome. If you have ideas for new features or tools to include in the Kali image, open an issue.
+Ideas, issues, and pull requests are welcome.
+If you want to improve the operator experience, AI workflows, container image, recon ergonomics, or mission management, you are very much in the right repo.
 
 ## License
 

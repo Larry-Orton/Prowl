@@ -2,6 +2,7 @@ import * as pty from 'node-pty';
 import { WebContents } from 'electron';
 import os from 'os';
 import { containerManager } from './containerManager';
+import { parseKeywordCommand } from '../shared/terminalKeywords';
 
 interface ShellInstance {
   pty: pty.IPty;
@@ -11,6 +12,8 @@ interface ShellInstance {
 
 class ShellManager {
   private shells: Map<string, ShellInstance> = new Map();
+  private lineBuffers: Map<string, string> = new Map();
+  private escapeStates: Map<string, 'none' | 'esc' | 'csi' | 'ss3'> = new Map();
 
   private getShellPath(): string {
     switch (process.platform) {
@@ -80,6 +83,8 @@ class ShellManager {
         webContents.send('shell:exit', id);
       }
       this.shells.delete(id);
+      this.lineBuffers.delete(id);
+      this.escapeStates.delete(id);
     });
 
     this.shells.set(id, { pty: ptyProcess, webContents, type });
@@ -87,9 +92,85 @@ class ShellManager {
 
   write(id: string, data: string): void {
     const shell = this.shells.get(id);
-    if (shell) {
-      shell.pty.write(data);
+    if (!shell) return;
+
+    let buf = this.lineBuffers.get(id) || '';
+    let escapeState = this.escapeStates.get(id) || 'none';
+
+    for (let i = 0; i < data.length; i++) {
+      const ch = data[i];
+      const code = ch.charCodeAt(0);
+
+      if (escapeState === 'esc') {
+        shell.pty.write(ch);
+        if (ch === '[') {
+          escapeState = 'csi';
+        } else if (ch === 'O') {
+          escapeState = 'ss3';
+        } else {
+          escapeState = 'none';
+        }
+        continue;
+      }
+
+      if (escapeState === 'csi') {
+        shell.pty.write(ch);
+        if (code >= 64 && code <= 126) {
+          escapeState = 'none';
+        }
+        continue;
+      }
+
+      if (escapeState === 'ss3') {
+        shell.pty.write(ch);
+        escapeState = 'none';
+        continue;
+      }
+
+      if (ch === '\r') {
+        // Enter pressed — check for keyword
+        const action = parseKeywordCommand(buf);
+        if (action) {
+          // Clear the current line without emitting a visible ^C.
+          shell.pty.write('\x15');
+          if (!shell.webContents.isDestroyed()) {
+            shell.webContents.send('prowl:keyword-action', id, action);
+          }
+          buf = '';
+          escapeState = 'none';
+        } else {
+          // Normal command — send Enter
+          shell.pty.write('\r');
+          buf = '';
+        }
+      } else if (ch === '\x7f') {
+        // Backspace
+        buf = buf.slice(0, -1);
+        shell.pty.write(ch);
+      } else if (ch === '\x03') {
+        // Ctrl+C
+        buf = '';
+        shell.pty.write(ch);
+      } else if (ch === '\x15') {
+        // Ctrl+U
+        buf = '';
+        shell.pty.write(ch);
+      } else if (ch === '\x1b') {
+        escapeState = 'esc';
+        shell.pty.write(ch);
+      } else if (code >= 32 && code < 127) {
+        // Printable ASCII — track in buffer
+        buf += ch;
+        shell.pty.write(ch);
+      } else {
+        // Everything else (escape sequences, control chars, unicode)
+        // Pass through without modifying buffer
+        shell.pty.write(ch);
+      }
     }
+
+    this.lineBuffers.set(id, buf);
+    this.escapeStates.set(id, escapeState);
   }
 
   resize(id: string, cols: number, rows: number): void {
@@ -112,6 +193,8 @@ class ShellManager {
         // Ignore kill errors
       }
       this.shells.delete(id);
+      this.lineBuffers.delete(id);
+      this.escapeStates.delete(id);
     }
   }
 

@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { Note } from '@shared/types';
 import { QUICK_COMMANDS, CRITICAL_PORTS } from '@shared/constants';
 import { useSessionStore } from '../store/sessionStore';
+import { useNotesStore } from '../store/notesStore';
 
 interface NotesPanelProps {
   notes: Note[];
@@ -26,6 +27,9 @@ const NotesPanel: React.FC<NotesPanelProps> = ({
 }) => {
   const [viewingNote, setViewingNote] = useState<Note | null>(null);
   const context = useSessionStore(s => s.context);
+  const activeNotebookId = useNotesStore(s => s.activeNotebookId);
+  const activeNotebookName = useNotesStore(s => s.activeNotebookName);
+  const setActiveNotebook = useNotesStore(s => s.setActiveNotebook);
 
   const handleNoteClick = useCallback((note: Note) => {
     if (selectedNoteId === note.id) {
@@ -129,6 +133,24 @@ const NotesPanel: React.FC<NotesPanelProps> = ({
         </div>
       </div>
 
+      {/* Active Notebook */}
+      {activeNotebookName && (
+        <div className="panel-section notebook-indicator">
+          <div className="notebook-active">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            <span className="notebook-name">{activeNotebookName}</span>
+            <button
+              className="notebook-close-btn"
+              onClick={() => setActiveNotebook(null, null)}
+              title="Close notebook"
+            >
+              ×
+            </button>
+          </div>
+          <div className="notebook-hint">All notes go here</div>
+        </div>
+      )}
+
       {/* Notes */}
       <div className="panel-section" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <div className="section-label" style={{ flexShrink: 0 }}>
@@ -143,18 +165,28 @@ const NotesPanel: React.FC<NotesPanelProps> = ({
               <div className="empty-hint">type <code>note &lt;text&gt;</code></div>
             </div>
           ) : (
-            notes.map(note => (
+            notes.map((note, i) => (
               <div
                 key={note.id}
-                className={`note-item ${note.id === selectedNoteId ? 'selected' : ''}`}
+                className={`note-item ${note.id === selectedNoteId ? 'selected' : ''} ${note.id === activeNotebookId ? 'active-notebook' : ''}`}
                 onClick={() => handleNoteClick(note)}
               >
                 <div className="note-item-header">
                   <span className={`source-dot ${note.source}`}>{sourceIcon(note.source)}</span>
                   <span className="note-item-title">{note.title}</span>
+                  <button
+                    className="note-delete-btn"
+                    onClick={(e) => { e.stopPropagation(); onDeleteNote(note.id); }}
+                    title="Delete note"
+                  >
+                    ×
+                  </button>
                 </div>
                 <div className="note-item-preview">{note.content.slice(0, 55)}{note.content.length > 55 ? '...' : ''}</div>
-                <div className="note-item-date">{formatDate(note.updatedAt)}</div>
+                <div className="note-item-date">
+                  <span className="note-index">#{i + 1}</span>
+                  {formatDate(note.updatedAt)}
+                </div>
               </div>
             ))
           )}

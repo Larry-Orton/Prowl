@@ -3,9 +3,16 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 interface BrowserPanelProps {
   socksPort: number;
   onPageContent?: (url: string, content: string) => void;
+  initialUrl?: string;
+  onInitialUrlHandled?: () => void;
 }
 
-const BrowserPanel: React.FC<BrowserPanelProps> = ({ socksPort, onPageContent }) => {
+const BrowserPanel: React.FC<BrowserPanelProps> = ({
+  socksPort,
+  onPageContent,
+  initialUrl,
+  onInitialUrlHandled,
+}) => {
   const [url, setUrl] = useState('');
   const [currentUrl, setCurrentUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -50,6 +57,12 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({ socksPort, onPageContent })
       // ignore
     }
   }, [currentUrl, onPageContent]);
+
+  useEffect(() => {
+    if (!initialUrl) return;
+    navigate(initialUrl);
+    onInitialUrlHandled?.();
+  }, [initialUrl, navigate, onInitialUrlHandled]);
 
   useEffect(() => {
     const webview = webviewRef.current;
@@ -119,7 +132,7 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({ socksPort, onPageContent })
         <webview
           ref={webviewRef}
           src={currentUrl}
-          partition="prowl-browser"
+          partition="persist:prowl-browser"
           className="browser-webview"
           // @ts-ignore - webview attributes
           allowpopups="false"

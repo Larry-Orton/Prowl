@@ -5,97 +5,43 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { useSessionStore } from '../store/sessionStore';
 import { useThemeStore } from '../store/themeStore';
 import { WELCOME_BANNER } from '@shared/constants';
-
-export type KeywordAction =
-  | { type: 'target'; ip: string }
-  | { type: 'note'; text: string }
-  | { type: 'notes_add'; text: string }
-  | { type: 'add_last'; tool: string }
-  | { type: 'ask'; question: string }
-  | { type: 'help' }
-  | { type: 'search'; term: string }
-  | { type: 'export_notes' }
-  | { type: 'commands'; tool: string };
+import { KeywordAction, parseKeywordCommand } from '@shared/terminalKeywords';
 
 interface UseTerminalOptions {
   tabId: string;
   shellType?: 'local' | 'kali';
+  terminalTitle: string;
   containerRef: React.RefObject<HTMLDivElement>;
   onKeywordCommand: (action: KeywordAction) => void;
   onCommandRun: (cmd: string) => void;
   onOutput: (data: string) => void;
 }
 
+// ── Hook ──────────────────────────────────────────
+
 export function useTerminal({
   tabId,
   shellType = 'local',
+  terminalTitle,
   containerRef,
   onKeywordCommand,
-  onCommandRun,
+  onCommandRun: _onCommandRun,
   onOutput,
 }: UseTerminalOptions) {
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const lineBufferRef = useRef('');
   const cleanupRef = useRef<(() => void)[]>([]);
   const outputBufferRef = useRef('');
   const outputTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputBufferRef = useRef('');
+  const inputEscapeStateRef = useRef<'none' | 'esc' | 'csi' | 'ss3'>('none');
+  const forwardedEscapeStateRef = useRef<'none' | 'esc' | 'csi' | 'ss3'>('none');
+  const forwardedEscapeBufferRef = useRef('');
 
   const parseAndUpdateFromOutput = useSessionStore(s => s.parseAndUpdateFromOutput);
+  const recordTerminalOutput = useSessionStore(s => s.recordTerminalOutput);
   const setLastCommandOutput = useSessionStore(s => s.setLastCommandOutput);
   const currentTheme = useThemeStore(s => s.currentTheme);
-
-  const parseKeywordCommand = useCallback((line: string): KeywordAction | null => {
-    const trimmed = line.trim();
-    if (!trimmed) return null;
-
-    const lower = trimmed.toLowerCase();
-
-    if (lower.startsWith('target ')) {
-      const ip = trimmed.slice(7).trim();
-      if (ip) return { type: 'target', ip };
-    }
-
-    if (lower.startsWith('note ')) {
-      const text = trimmed.slice(5).trim();
-      if (text) return { type: 'note', text };
-    }
-
-    if (lower.startsWith('notes add ')) {
-      const text = trimmed.slice(10).trim();
-      if (text) return { type: 'notes_add', text };
-    }
-
-    if (lower.startsWith('add last ')) {
-      const tool = trimmed.slice(9).trim();
-      if (tool) return { type: 'add_last', tool };
-    }
-
-    if (lower.startsWith('ask ')) {
-      const question = trimmed.slice(4).trim();
-      if (question) return { type: 'ask', question };
-    }
-
-    if (lower === 'help' || lower === 'hack help') {
-      return { type: 'help' };
-    }
-
-    if (lower.startsWith('search ')) {
-      const term = trimmed.slice(7).trim();
-      if (term) return { type: 'search', term };
-    }
-
-    if (lower === 'export notes') {
-      return { type: 'export_notes' };
-    }
-
-    if (lower.startsWith('commands ')) {
-      const tool = trimmed.slice(9).trim();
-      if (tool) return { type: 'commands', tool };
-    }
-
-    return null;
-  }, []);
 
   const writeToTerminal = useCallback((data: string) => {
     termRef.current?.write(data);
@@ -103,25 +49,145 @@ export function useTerminal({
 
   const runCommand = useCallback((cmd: string) => {
     if (!termRef.current) return;
-    // Write the command to pty
     window.electronAPI.shell.write(tabId, cmd + '\r');
   }, [tabId]);
 
   const resize = useCallback(() => {
-    if (!fitAddonRef.current || !termRef.current) return;
+    if (!fitAddonRef.current || !termRef.current || !containerRef.current) return;
+    if (containerRef.current.offsetWidth === 0 || containerRef.current.offsetHeight === 0) {
+      return;
+    }
     try {
       fitAddonRef.current.fit();
       const { cols, rows } = termRef.current;
       window.electronAPI.shell.resize(tabId, cols, rows);
     } catch {
-      // Ignore resize errors
+      // Ignore resize errors during init
     }
   }, [tabId]);
 
+  const trackInputData = useCallback((data: string) => {
+    let buf = inputBufferRef.current;
+    let escapeState = inputEscapeStateRef.current;
+
+    for (let i = 0; i < data.length; i++) {
+      const ch = data[i];
+      const code = ch.charCodeAt(0);
+
+      if (escapeState === 'esc') {
+        if (ch === '[') {
+          escapeState = 'csi';
+        } else if (ch === 'O') {
+          escapeState = 'ss3';
+        } else {
+          escapeState = 'none';
+        }
+        continue;
+      }
+
+      if (escapeState === 'csi') {
+        if (code >= 64 && code <= 126) {
+          escapeState = 'none';
+        }
+        continue;
+      }
+
+      if (escapeState === 'ss3') {
+        escapeState = 'none';
+        continue;
+      }
+
+      if (ch === '\r' || ch === '\n') {
+        const trimmed = buf.trim();
+        if (trimmed && !parseKeywordCommand(buf)) {
+          _onCommandRun(trimmed);
+        }
+        buf = '';
+      } else if (ch === '\x1b') {
+        escapeState = 'esc';
+      } else if (ch === '\x7f') {
+        buf = buf.slice(0, -1);
+      } else if (ch === '\x03' || ch === '\x15') {
+        buf = '';
+      } else if (code >= 32 && code < 127) {
+        buf += ch;
+      }
+    }
+
+    inputBufferRef.current = buf;
+    inputEscapeStateRef.current = escapeState;
+  }, [_onCommandRun]);
+
+  const sanitizeForwardedInput = useCallback((data: string) => {
+    let sanitized = '';
+    let escapeState = forwardedEscapeStateRef.current;
+    let escapeBuffer = forwardedEscapeBufferRef.current;
+
+    for (let i = 0; i < data.length; i++) {
+      const ch = data[i];
+      const code = ch.charCodeAt(0);
+
+      if (escapeState === 'none') {
+        if (ch === '\x1b') {
+          escapeState = 'esc';
+          escapeBuffer = ch;
+        } else {
+          sanitized += ch;
+        }
+        continue;
+      }
+
+      if (escapeState === 'esc') {
+        escapeBuffer += ch;
+
+        if (ch === '[') {
+          escapeState = 'csi';
+          continue;
+        }
+
+        if (ch === 'O') {
+          escapeState = 'ss3';
+          continue;
+        }
+
+        sanitized += escapeBuffer;
+        escapeState = 'none';
+        escapeBuffer = '';
+        continue;
+      }
+
+      if (escapeState === 'csi') {
+        escapeBuffer += ch;
+
+        if (code >= 64 && code <= 126) {
+          if (escapeBuffer !== '\x1b[I' && escapeBuffer !== '\x1b[O') {
+            sanitized += escapeBuffer;
+          }
+          escapeState = 'none';
+          escapeBuffer = '';
+        }
+        continue;
+      }
+
+      escapeBuffer += ch;
+      sanitized += escapeBuffer;
+      escapeState = 'none';
+      escapeBuffer = '';
+    }
+
+    forwardedEscapeStateRef.current = escapeState;
+    forwardedEscapeBufferRef.current = escapeBuffer;
+
+    return sanitized;
+  }, []);
+
   useEffect(() => {
     if (!containerRef.current) return;
+    inputBufferRef.current = '';
+    inputEscapeStateRef.current = 'none';
+    forwardedEscapeStateRef.current = 'none';
+    forwardedEscapeBufferRef.current = '';
 
-    // Create terminal with current theme
     const term = new Terminal({
       theme: currentTheme.terminal,
       fontFamily: '"JetBrains Mono", "Cascadia Code", "Fira Code", monospace',
@@ -132,6 +198,7 @@ export function useTerminal({
       allowTransparency: false,
       scrollback: 5000,
       smoothScrollDuration: 0,
+      rightClickSelectsWord: true,
     });
 
     const fitAddon = new FitAddon();
@@ -143,12 +210,10 @@ export function useTerminal({
     termRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // Guard against StrictMode double-mount: if cleanup runs before rAF fires,
-    // skip opening the already-disposed terminal.
     let cancelled = false;
+    let isOpened = false;
 
-    // Wait until the container has real pixel dimensions before opening xterm.
-    // open() reads offsetWidth/offsetHeight internally and throws if they're 0.
+    // Wait until container has real dimensions before opening xterm
     const openWhenReady = () => {
       if (cancelled) return;
       const el = containerRef.current;
@@ -158,32 +223,41 @@ export function useTerminal({
         return;
       }
 
-      term.open(el);
+      try {
+        term.open(el);
+        isOpened = true;
+      } catch (err) {
+        console.error('Failed to open terminal:', err);
+        return;
+      }
+
       term.focus();
 
-      // Fit, write banner, then spawn shell
       setTimeout(() => {
         if (cancelled) return;
         try { fitAddon.fit(); } catch { /* ignore */ }
         const { cols, rows } = term;
-        // Banner BEFORE shell spawn so PowerShell init noise can't appear above it
         term.write(WELCOME_BANNER);
         window.electronAPI.shell.spawn(tabId, shellType).then(() => {
           if (cancelled) return;
-          window.electronAPI.shell.resize(tabId, cols, rows);
+          try {
+            window.electronAPI.shell.resize(tabId, cols, rows);
+          } catch { /* ignore */ }
           term.focus();
+        }).catch((err: unknown) => {
+          console.error('Failed to spawn shell:', err);
+          term.write('\r\n\x1b[31mFailed to start shell. Check your environment.\x1b[0m\r\n');
         });
       }, 50);
     };
 
     requestAnimationFrame(openWhenReady);
 
-    // Handle pty data
+    // ── PTY Data Handler ──────────────────────────
     const unsubData = window.electronAPI.shell.onData((id: string, data: string) => {
       if (id !== tabId) return;
       term.write(data);
 
-      // Accumulate output for context parsing
       outputBufferRef.current += data;
       onOutput(data);
 
@@ -194,6 +268,7 @@ export function useTerminal({
         const buf = outputBufferRef.current;
         if (buf) {
           parseAndUpdateFromOutput(buf);
+          recordTerminalOutput(tabId, shellType, terminalTitle, buf);
           setLastCommandOutput(buf);
           outputBufferRef.current = '';
         }
@@ -204,58 +279,119 @@ export function useTerminal({
       cleanupRef.current.push(unsubData);
     }
 
-    // Handle user input with keyword interception
-    const dataDisposable = term.onData((data: string) => {
-      if (data === '\r') {
-        // Enter pressed
-        const line = lineBufferRef.current;
-        lineBufferRef.current = '';
+    // ── Copy/Paste ─────────────────────────────────
+    term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      if (e.type !== 'keydown') return true;
 
-        const action = parseKeywordCommand(line);
-        if (action) {
-          // Send Ctrl+U to clear the line in shell, then Ctrl+C to be safe
-          window.electronAPI.shell.write(tabId, '\x15');
-          setTimeout(() => {
-            onKeywordCommand(action);
-          }, 50);
-          return;
+      // Ctrl+C: copy if selection, otherwise interrupt
+      if (e.ctrlKey && !e.shiftKey && e.key === 'c') {
+        if (term.hasSelection()) {
+          navigator.clipboard.writeText(term.getSelection());
+          term.clearSelection();
+          return false;
         }
-
-        // Not a keyword — track as regular command
-        if (line.trim()) {
-          onCommandRun(line.trim());
-        }
-        window.electronAPI.shell.write(tabId, data);
-      } else if (data === '\x7f') {
-        // Backspace
-        lineBufferRef.current = lineBufferRef.current.slice(0, -1);
-        window.electronAPI.shell.write(tabId, data);
-      } else if (data === '\x03') {
-        // Ctrl+C — reset buffer
-        lineBufferRef.current = '';
-        window.electronAPI.shell.write(tabId, data);
-      } else if (data === '\x1b' || data.startsWith('\x1b[')) {
-        // Escape sequences (arrow keys, etc.) — reset line buffer tracking
-        lineBufferRef.current = '';
-        window.electronAPI.shell.write(tabId, data);
-      } else if (data.charCodeAt(0) >= 32 && data.charCodeAt(0) < 127) {
-        lineBufferRef.current += data;
-        window.electronAPI.shell.write(tabId, data);
-      } else {
-        window.electronAPI.shell.write(tabId, data);
+        return true;
       }
+
+      // Ctrl+V / Ctrl+Shift+V: paste
+      if ((e.ctrlKey && !e.shiftKey && e.key === 'v') ||
+          (e.ctrlKey && e.shiftKey && e.key === 'V')) {
+        navigator.clipboard.readText().then(text => {
+          if (text) {
+            trackInputData(text);
+            window.electronAPI.shell.write(tabId, text);
+          }
+        });
+        return false;
+      }
+
+      // Ctrl+Shift+C: copy
+      if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+        if (term.hasSelection()) {
+          navigator.clipboard.writeText(term.getSelection());
+          term.clearSelection();
+        }
+        return false;
+      }
+
+      // Ctrl+L: clear
+      if (e.ctrlKey && e.key === 'l') {
+        term.clear();
+        return true;
+      }
+
+      return true;
+    });
+
+    // ── Right-click: copy selection or paste ──────
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      if (term.hasSelection()) {
+        navigator.clipboard.writeText(term.getSelection());
+        term.clearSelection();
+      } else {
+        navigator.clipboard.readText().then(text => {
+          if (text) {
+            trackInputData(text);
+            window.electronAPI.shell.write(tabId, text);
+          }
+        });
+      }
+    };
+    containerRef.current?.addEventListener('contextmenu', handleContextMenu);
+    cleanupRef.current.push(() => {
+      containerRef.current?.removeEventListener('contextmenu', handleContextMenu);
+    });
+
+    // ── User Input Handler ────────────────────────
+    // Mirror the shell manager's line buffer locally so we can learn from
+    // operator-entered commands without waiting on a separate IPC event.
+    const dataDisposable = term.onData((data: string) => {
+      const sanitized = sanitizeForwardedInput(data);
+      if (!sanitized) {
+        return;
+      }
+      trackInputData(sanitized);
+      window.electronAPI.shell.write(tabId, sanitized);
     });
 
     cleanupRef.current.push(() => dataDisposable.dispose());
 
-    // ResizeObserver
+    const handlePrefillEvent = (event: Event) => {
+      const detail = (event as CustomEvent<{ tabId?: string; data?: string }>).detail;
+      if (!detail || detail.tabId !== tabId || typeof detail.data !== 'string') {
+        return;
+      }
+      trackInputData(detail.data);
+    };
+
+    window.addEventListener('prowl:terminal-prefill', handlePrefillEvent as EventListener);
+    cleanupRef.current.push(() => {
+      window.removeEventListener('prowl:terminal-prefill', handlePrefillEvent as EventListener);
+    });
+
+    // ── Keyword Actions from Main Process ─────────
+    const unsubKeyword = window.electronAPI.shell.onKeywordAction((id: string, action: KeywordAction) => {
+      if (id !== tabId) return;
+      onKeywordCommand(action);
+    });
+
+    if (typeof unsubKeyword === 'function') {
+      cleanupRef.current.push(unsubKeyword);
+    }
+
+    // ── Resize Observer ───────────────────────────
     const resizeObserver = new ResizeObserver(() => {
+      if (!isOpened) return;
+      if (!containerRef.current || containerRef.current.offsetWidth === 0 || containerRef.current.offsetHeight === 0) {
+        return;
+      }
       try {
         fitAddon.fit();
         const { cols, rows } = term;
         window.electronAPI.shell.resize(tabId, cols, rows);
       } catch {
-        // ignore
+        // ignore — terminal may not be ready
       }
     });
 
@@ -264,20 +400,19 @@ export function useTerminal({
     }
     cleanupRef.current.push(() => resizeObserver.disconnect());
 
-    // Cleanup
+    // ── Cleanup ───────────────────────────────────
     return () => {
       cancelled = true;
       if (outputTimerRef.current) {
         clearTimeout(outputTimerRef.current);
       }
       for (const fn of cleanupRef.current) {
-        fn();
+        try { fn(); } catch { /* ignore cleanup errors */ }
       }
       cleanupRef.current = [];
-      term.dispose();
+      try { term.dispose(); } catch { /* ignore */ }
       termRef.current = null;
       fitAddonRef.current = null;
-      lineBufferRef.current = '';
     };
   }, [tabId]); // eslint-disable-line react-hooks/exhaustive-deps
 

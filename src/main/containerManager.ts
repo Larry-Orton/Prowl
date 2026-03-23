@@ -3,12 +3,13 @@
  * Detects runtime, builds image, starts/stops container, execs into it.
  */
 import { execFile, spawn, ChildProcess } from 'child_process';
+import { createHash } from 'crypto';
 import { app } from 'electron';
 import path from 'path';
 import fs from 'fs';
 
 export type ContainerRuntime = 'docker' | 'podman' | null;
-export type ContainerStatus = 'not_installed' | 'no_image' | 'stopped' | 'running';
+export type ContainerStatus = 'not_installed' | 'no_image' | 'stopped' | 'running' | 'update_available';
 
 const IMAGE_NAME = 'prowl-kali';
 const CONTAINER_NAME = 'prowl-kali-env';
@@ -56,14 +57,42 @@ class ContainerManager {
       return 'no_image';
     }
 
+    // Check if image is outdated
+    const outdated = await this.isImageOutdated();
+
     // Check if container is running
     try {
       const state = await this.exec(this.runtimePath, [
         'inspect', CONTAINER_NAME, '--format', '{{.State.Running}}'
       ]);
-      return state.trim() === 'true' ? 'running' : 'stopped';
+      if (state.trim() === 'true') return outdated ? 'update_available' : 'running';
+      return outdated ? 'update_available' : 'stopped';
     } catch {
-      return 'stopped';
+      return outdated ? 'update_available' : 'stopped';
+    }
+  }
+
+  // ── Version Check ──────────────────────────────
+
+  private getDockerfileHash(): string {
+    const dockerDir = this.getDockerDir();
+    const dockerfilePath = path.join(dockerDir, 'Dockerfile');
+    const entrypointPath = path.join(dockerDir, 'entrypoint.sh');
+    const hash = createHash('sha256');
+    if (fs.existsSync(dockerfilePath)) hash.update(fs.readFileSync(dockerfilePath));
+    if (fs.existsSync(entrypointPath)) hash.update(fs.readFileSync(entrypointPath));
+    return hash.digest('hex').slice(0, 12);
+  }
+
+  private async isImageOutdated(): Promise<boolean> {
+    try {
+      const currentHash = this.getDockerfileHash();
+      const labelHash = await this.exec(this.runtimePath, [
+        'inspect', IMAGE_NAME, '--format', '{{index .Config.Labels "prowl.dockerfile.hash"}}'
+      ]);
+      return labelHash.trim() !== currentHash;
+    } catch {
+      return false;
     }
   }
 
@@ -77,8 +106,10 @@ class ContainerManager {
       throw new Error('Dockerfile not found at ' + dockerDir);
     }
 
+    const hash = this.getDockerfileHash();
+
     return new Promise((resolve, reject) => {
-      const proc = spawn(this.runtimePath, ['build', '-t', IMAGE_NAME, '.'], {
+      const proc = spawn(this.runtimePath, ['build', '-t', IMAGE_NAME, '--label', `prowl.dockerfile.hash=${hash}`, '.'], {
         cwd: dockerDir,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -180,9 +211,13 @@ class ContainerManager {
   // ── VPN Management ───────────────────────────
 
   async connectVPN(ovpnFilename: string): Promise<string> {
+    // Ensure TUN device exists (Docker Desktop on Windows doesn't provide it)
+    await this.execCommand(
+      'mkdir -p /dev/net && [ ! -e /dev/net/tun ] && mknod /dev/net/tun c 10 200 && chmod 600 /dev/net/tun || true'
+    );
     return this.execCommand(
-      `openvpn --config /vpn/${ovpnFilename} --daemon --log /tmp/vpn.log && sleep 3 && ` +
-      `(ip link show tun0 &>/dev/null && echo "connected" || echo "failed")`
+      `openvpn --config /vpn/${ovpnFilename} --daemon --log /tmp/vpn.log && sleep 8 && ` +
+      `(ip link show tun0 &>/dev/null && echo "connected" || (tail -5 /tmp/vpn.log && echo "failed"))`
     );
   }
 
@@ -249,9 +284,9 @@ class ContainerManager {
     return SOCKS_PORT;
   }
 
-  private exec(cmd: string, args: string[]): Promise<string> {
+  private exec(cmd: string, args: string[], timeout = 30000): Promise<string> {
     return new Promise((resolve, reject) => {
-      execFile(cmd, args, { timeout: 30000 }, (err, stdout, stderr) => {
+      execFile(cmd, args, { timeout }, (err, stdout, stderr) => {
         if (err) reject(err);
         else resolve(stdout);
       });

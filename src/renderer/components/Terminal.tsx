@@ -1,18 +1,20 @@
 import React, { useRef, useCallback, useEffect } from 'react';
-import { useTerminal, KeywordAction } from '../hooks/useTerminal';
+import { useTerminal } from '../hooks/useTerminal';
 import { useSessionStore } from '../store/sessionStore';
 import { useThemeStore } from '../store/themeStore';
 import { useTerminalStore } from '../store/terminalStore';
+import type { KeywordAction } from '@shared/terminalKeywords';
 
 interface TerminalProps {
   tabId: string;
   isActive: boolean;
   onKeywordCommand: (action: KeywordAction) => void;
+  onCommandLogged?: (cmd: string) => void;
 }
 
-const Terminal: React.FC<TerminalProps> = ({ tabId, isActive, onKeywordCommand }) => {
+const Terminal: React.FC<TerminalProps> = ({ tabId, isActive, onKeywordCommand, onCommandLogged }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const addRecentCommand = useSessionStore(s => s.addRecentCommand);
+  const recordTerminalCommand = useSessionStore(s => s.recordTerminalCommand);
   const lastOutputRef = useRef('');
   const theme = useThemeStore(s => s.currentTheme);
   const tabs = useTerminalStore(s => s.tabs);
@@ -26,12 +28,14 @@ const Terminal: React.FC<TerminalProps> = ({ tabId, isActive, onKeywordCommand }
   }, []);
 
   const handleCommandRun = useCallback((cmd: string) => {
-    addRecentCommand(cmd);
-  }, [addRecentCommand]);
+    recordTerminalCommand(tabId, tab?.shellType || 'local', tab?.title || 'Terminal', cmd);
+    if (onCommandLogged) onCommandLogged(cmd);
+  }, [onCommandLogged, recordTerminalCommand, tab?.shellType, tab?.title, tabId]);
 
-  const { term } = useTerminal({
+  const { term, resize } = useTerminal({
     tabId,
     shellType: tab?.shellType || 'local',
+    terminalTitle: tab?.title || 'Terminal',
     containerRef: containerRef as React.RefObject<HTMLDivElement>,
     onKeywordCommand,
     onCommandRun: handleCommandRun,
@@ -44,6 +48,22 @@ const Terminal: React.FC<TerminalProps> = ({ tabId, isActive, onKeywordCommand }
     }
   }, [theme, term]);
 
+  useEffect(() => {
+    if (!isActive || !term.current) {
+      return;
+    }
+
+    const id = window.requestAnimationFrame(() => {
+      resize();
+      term.current?.focus();
+      if (term.current && term.current.rows > 0) {
+        term.current.refresh(0, term.current.rows - 1);
+      }
+    });
+
+    return () => window.cancelAnimationFrame(id);
+  }, [isActive, resize, term]);
+
   return (
     <div
       className="terminal-container"
@@ -53,7 +73,7 @@ const Terminal: React.FC<TerminalProps> = ({ tabId, isActive, onKeywordCommand }
         termEl?.focus();
       }}
       style={{
-        display: isActive ? 'block' : 'none',
+        flex: 1,
         height: '100%',
         width: '100%',
         cursor: 'text',

@@ -2,10 +2,12 @@ import React from 'react';
 import { ActiveContext } from '@shared/types';
 import { CRITICAL_PORTS } from '@shared/constants';
 import { useThemeStore } from '../store/themeStore';
+import { useMissionModeStore } from '../store/missionModeStore';
 
 interface StatusBarProps {
   context: ActiveContext;
   noteCount: number;
+  findingCount: number;
   isAIActive: boolean;
   isThinking: boolean;
 }
@@ -13,11 +15,13 @@ interface StatusBarProps {
 const StatusBar: React.FC<StatusBarProps> = ({
   context,
   noteCount,
+  findingCount,
   isAIActive,
   isThinking,
 }) => {
   const hasCriticalPorts = context.discoveredPorts.some(p => CRITICAL_PORTS.includes(p));
   const theme = useThemeStore(s => s.currentTheme);
+  const missionMode = useMissionModeStore(s => s.mode);
 
   return (
     <div className="statusbar">
@@ -44,6 +48,13 @@ const StatusBar: React.FC<StatusBarProps> = ({
             <span className="sb-value">{context.scannedServices.length}</span>
           </div>
         )}
+
+        <div className="sb-item">
+          <span className="sb-label">MODE</span>
+          <span className={`sb-value mode ${missionMode.id}`}>
+            {missionMode.label}
+          </span>
+        </div>
       </div>
 
       <div className="sb-group sb-right">
@@ -56,6 +67,10 @@ const StatusBar: React.FC<StatusBarProps> = ({
         <div className="sb-item">
           <span className="sb-label">NOTES</span>
           <span className="sb-value">{noteCount}</span>
+        </div>
+        <div className="sb-item">
+          <span className="sb-label">FIND</span>
+          <span className="sb-value">{findingCount}</span>
         </div>
         <div className="sb-item">
           <span className="sb-value dim">{theme.name}</span>

@@ -6,6 +6,11 @@ import { sendToAI } from './aiProxy';
 import { containerManager } from './containerManager';
 import {
   getDatabase,
+  saveEngagement,
+  getEngagements,
+  deleteEngagement,
+  getCurrentEngagementId,
+  setCurrentEngagementId,
   saveNote,
   getAllNotes,
   searchNotes,
@@ -13,6 +18,10 @@ import {
   saveCommand,
   getCommands,
   searchCommands,
+  saveFinding,
+  getFindings,
+  searchFindings,
+  deleteFinding,
   saveApiKey,
   getApiKey,
   deleteApiKey,
@@ -21,6 +30,36 @@ import {
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 let mainWindow: BrowserWindow | null = null;
+
+function resolveWorkspaceHostPath(workspacePath?: string): string {
+  const workspaceRoot = containerManager.getWorkspacePath();
+  const normalizedWorkspacePath = (workspacePath || '/workspace').replace(/\\/g, '/');
+  const relativePath = normalizedWorkspacePath.startsWith('/workspace')
+    ? path.posix.relative('/workspace', normalizedWorkspacePath)
+    : normalizedWorkspacePath.replace(/^\/+/, '');
+  const hostPath = path.resolve(workspaceRoot, relativePath || '.');
+  const workspaceRootResolved = path.resolve(workspaceRoot);
+  const workspaceRelative = path.relative(workspaceRootResolved, hostPath);
+
+  if (workspaceRelative.startsWith('..') || path.isAbsolute(workspaceRelative)) {
+    throw new Error('Workspace path escapes root');
+  }
+
+  return hostPath;
+}
+
+function toWorkspaceContainerPath(hostPath: string): string {
+  const workspaceRoot = path.resolve(containerManager.getWorkspacePath());
+  const normalizedHostPath = path.resolve(hostPath);
+  const relativePath = path.relative(workspaceRoot, normalizedHostPath);
+
+  if (relativePath.startsWith('..')) {
+    throw new Error('Workspace path escapes root');
+  }
+
+  const posixRelative = relativePath.split(path.sep).join('/');
+  return posixRelative ? `/workspace/${posixRelative}` : '/workspace';
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -62,6 +101,18 @@ function createWindow(): void {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
+  // Set SOCKS proxy on the embedded browser partition
+  const browserSession = session.fromPartition('persist:prowl-browser');
+  const socksPort = containerManager.getSocksPort();
+  browserSession.setProxy({
+    proxyRules: `socks5://127.0.0.1:${socksPort}`,
+    proxyBypassRules: '',
+  }).then(() => {
+    console.log('[PROWL] Browser proxy set: socks5://127.0.0.1:' + socksPort);
+  }).catch((err: Error) => {
+    console.error('[PROWL] Failed to set browser proxy:', err);
+  });
+
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
   });
@@ -86,6 +137,28 @@ ipcMain.on('shell:resize', (_, id: string, cols: number, rows: number) => {
   shellManager.resize(id, cols, rows);
 });
 
+ipcMain.handle('engagements:save', async (_, engagement) => {
+  const saved = saveEngagement(engagement);
+  fs.mkdirSync(resolveWorkspaceHostPath(saved.workspacePath), { recursive: true });
+  return saved;
+});
+
+ipcMain.handle('engagements:getAll', async () => {
+  return getEngagements();
+});
+
+ipcMain.handle('engagements:delete', async (_, id: string) => {
+  deleteEngagement(id);
+});
+
+ipcMain.handle('engagements:getCurrent', async () => {
+  return getCurrentEngagementId();
+});
+
+ipcMain.handle('engagements:setCurrent', async (_, id: string) => {
+  return setCurrentEngagementId(id);
+});
+
 // ── Notes IPC ──────────────────────────────────────
 
 ipcMain.handle('notes:save', async (_, note) => {
@@ -93,14 +166,14 @@ ipcMain.handle('notes:save', async (_, note) => {
   return saveNote(db, note);
 });
 
-ipcMain.handle('notes:getAll', async () => {
+ipcMain.handle('notes:getAll', async (_, engagementId?: string) => {
   const db = getDatabase();
-  return getAllNotes(db);
+  return getAllNotes(db, engagementId);
 });
 
-ipcMain.handle('notes:search', async (_, query: string) => {
+ipcMain.handle('notes:search', async (_, query: string, engagementId?: string) => {
   const db = getDatabase();
-  return searchNotes(db, query);
+  return searchNotes(db, query, engagementId);
 });
 
 ipcMain.handle('notes:delete', async (_, id: string) => {
@@ -110,19 +183,35 @@ ipcMain.handle('notes:delete', async (_, id: string) => {
 
 // ── Command History IPC ────────────────────────────
 
-ipcMain.handle('commands:save', async (_, command: string, target: string) => {
-  return saveCommand(command, target);
+ipcMain.handle('commands:save', async (_, command: string, target: string, engagementId?: string) => {
+  return saveCommand(command, target, engagementId);
 });
 
-ipcMain.handle('commands:getAll', async () => {
-  return getCommands();
+ipcMain.handle('commands:getAll', async (_, engagementId?: string) => {
+  return getCommands(engagementId);
 });
 
-ipcMain.handle('commands:search', async (_, query: string, currentTarget?: string) => {
-  return searchCommands(query, currentTarget);
+ipcMain.handle('commands:search', async (_, query: string, currentTarget?: string, engagementId?: string) => {
+  return searchCommands(query, currentTarget, engagementId);
 });
 
 // ── AI IPC ─────────────────────────────────────────
+
+ipcMain.handle('findings:save', async (_, finding) => {
+  return saveFinding(finding);
+});
+
+ipcMain.handle('findings:getAll', async (_, engagementId?: string) => {
+  return getFindings(engagementId);
+});
+
+ipcMain.handle('findings:search', async (_, query: string, engagementId?: string) => {
+  return searchFindings(query, engagementId);
+});
+
+ipcMain.handle('findings:delete', async (_, id: string) => {
+  deleteFinding(id);
+});
 
 ipcMain.handle('ai:send', async (_, messages: { role: string; content: string }[], systemPrompt: string) => {
   return sendToAI(messages, systemPrompt);
@@ -294,6 +383,54 @@ ipcMain.handle('browser:capturePageContent', async (_, url: string) => {
 
     capture.loadURL(url);
   });
+});
+
+// ── Workspace IPC ─────────────────────────────────
+
+ipcMain.handle('workspace:listFiles', async (_, dirPath?: string) => {
+  try {
+    const targetHostDir = resolveWorkspaceHostPath(dirPath);
+    fs.mkdirSync(targetHostDir, { recursive: true });
+
+    return fs.readdirSync(targetHostDir, { withFileTypes: true })
+      .map((entry) => {
+        const fullHostPath = path.join(targetHostDir, entry.name);
+        const stats = fs.statSync(fullHostPath);
+        return {
+          name: entry.name,
+          path: toWorkspaceContainerPath(fullHostPath),
+          type: entry.isDirectory() ? 'directory' as const : 'file' as const,
+          size: stats.size,
+          modified: stats.mtime.toISOString(),
+        };
+      })
+      .sort((a, b) => b.modified.localeCompare(a.modified));
+  } catch {
+    return [];
+  }
+});
+
+ipcMain.handle('workspace:readFile', async (_, filePath: string) => {
+  try {
+    const hostPath = resolveWorkspaceHostPath(filePath);
+    const preview = fs.readFileSync(hostPath).subarray(0, 512000);
+    if (preview.includes(0)) {
+      return '[Binary file preview unavailable]';
+    }
+    return preview.toString('utf-8');
+  } catch {
+    return null;
+  }
+});
+
+ipcMain.handle('workspace:deleteFile', async (_, filePath: string) => {
+  try {
+    const hostPath = resolveWorkspaceHostPath(filePath);
+    fs.rmSync(hostPath, { recursive: true, force: true });
+    return true;
+  } catch {
+    return false;
+  }
 });
 
 // ── Dialog IPC ─────────────────────────────────────

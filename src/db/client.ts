@@ -5,13 +5,27 @@
 import fs from 'fs';
 import path from 'path';
 import { app, safeStorage } from 'electron';
-import type { Note, NoteRow, CommandRecord } from '../shared/types';
+import { DEFAULT_ENGAGEMENT_ID, DEFAULT_ENGAGEMENT_NAME } from '../shared/constants';
+import type {
+  Note,
+  NoteRow,
+  CommandRecord,
+  Finding,
+  FindingRow,
+  Engagement,
+  EngagementRow,
+} from '../shared/types';
 
 interface ProwlData {
   notes: NoteRow[];
   commands: CommandRecord[];
+  findings: FindingRow[];
+  engagements: EngagementRow[];
   encryptedApiKey?: string;
-  settings?: Record<string, unknown>;
+  settings?: {
+    currentEngagementId?: string;
+    [key: string]: unknown;
+  };
 }
 
 let dataPath: string | null = null;
@@ -24,19 +38,92 @@ function getDataPath(): string {
   return dataPath;
 }
 
+function createDefaultEngagementRow(): EngagementRow {
+  const now = new Date().toISOString();
+  return {
+    id: DEFAULT_ENGAGEMENT_ID,
+    name: DEFAULT_ENGAGEMENT_NAME,
+    primaryTarget: '',
+    workspacePath: `/workspace/${DEFAULT_ENGAGEMENT_ID}`,
+    tags: '[]',
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function normalizeEngagementId(engagementId?: string): string {
+  return engagementId || DEFAULT_ENGAGEMENT_ID;
+}
+
+function resolveEngagementId(data: ProwlData, engagementId?: string): string {
+  return normalizeEngagementId(engagementId || data.settings?.currentEngagementId);
+}
+
+function ensureDataShape(input: Partial<ProwlData> | undefined): ProwlData {
+  const data: ProwlData = {
+    notes: Array.isArray(input?.notes) ? input!.notes : [],
+    commands: Array.isArray(input?.commands) ? input!.commands : [],
+    findings: Array.isArray(input?.findings) ? input!.findings : [],
+    engagements: Array.isArray(input?.engagements) ? input!.engagements : [],
+    encryptedApiKey: input?.encryptedApiKey,
+    settings: typeof input?.settings === 'object' && input?.settings !== null ? input.settings : {},
+  };
+
+  if (data.engagements.length === 0) {
+    data.engagements = [createDefaultEngagementRow()];
+  }
+
+  if (!data.engagements.some((engagement) => engagement.id === DEFAULT_ENGAGEMENT_ID)) {
+    data.engagements.unshift(createDefaultEngagementRow());
+  }
+
+  data.notes = data.notes.map((note) => ({
+    ...note,
+    engagementId: normalizeEngagementId(note.engagementId),
+  }));
+  data.commands = data.commands.map((command) => ({
+    ...command,
+    engagementId: normalizeEngagementId(command.engagementId),
+  }));
+  data.findings = data.findings.map((finding) => ({
+    ...finding,
+    engagementId: normalizeEngagementId(finding.engagementId),
+  }));
+  data.engagements = data.engagements.map((engagement) => ({
+    ...engagement,
+    workspacePath: engagement.workspacePath || `/workspace/${engagement.id}`,
+    tags: engagement.tags || '[]',
+  }));
+
+  data.settings = {
+    ...data.settings,
+    currentEngagementId: normalizeEngagementId(data.settings?.currentEngagementId),
+  };
+
+  if (!data.engagements.some((engagement) => engagement.id === data.settings?.currentEngagementId)) {
+    data.settings.currentEngagementId = DEFAULT_ENGAGEMENT_ID;
+  }
+
+  return data;
+}
+
 function readData(): ProwlData {
   const p = getDataPath();
   if (!fs.existsSync(p)) {
-    return { notes: [], commands: [] };
+    const initial = ensureDataShape({ notes: [], commands: [], findings: [], engagements: [] });
+    writeData(initial);
+    return initial;
   }
   try {
     const raw = fs.readFileSync(p, 'utf-8');
-    const data = JSON.parse(raw);
-    // Ensure new fields exist for older data files
-    if (!data.commands) data.commands = [];
+    const parsed = JSON.parse(raw);
+    const data = ensureDataShape(parsed);
+    if (JSON.stringify(parsed) !== JSON.stringify(data)) {
+      writeData(data);
+    }
     return data;
   } catch {
-    return { notes: [], commands: [] };
+    return ensureDataShape({ notes: [], commands: [], findings: [], engagements: [] });
   }
 }
 
@@ -55,11 +142,13 @@ export function saveNote(_db: null, note: Partial<Note> & { id: string }): Note 
   const data = readData();
   const now = new Date().toISOString();
   const idx = data.notes.findIndex(n => n.id === note.id);
+  const engagementId = resolveEngagementId(data, note.engagementId);
 
   if (idx >= 0) {
     const existing = data.notes[idx];
     const updated: NoteRow = {
       id: note.id,
+      engagementId,
       title: note.title ?? existing.title,
       content: note.content ?? existing.content,
       tags: note.tags ? JSON.stringify(note.tags) : existing.tags,
@@ -73,6 +162,7 @@ export function saveNote(_db: null, note: Partial<Note> & { id: string }): Note 
   } else {
     const newNote: NoteRow = {
       id: note.id,
+      engagementId,
       title: note.title ?? 'Untitled',
       content: note.content ?? '',
       tags: note.tags ? JSON.stringify(note.tags) : '[]',
@@ -86,20 +176,26 @@ export function saveNote(_db: null, note: Partial<Note> & { id: string }): Note 
   }
 }
 
-export function getAllNotes(_db: null): Note[] {
+export function getAllNotes(_db: null, engagementId?: string): Note[] {
   const data = readData();
+  const resolvedEngagementId = resolveEngagementId(data, engagementId);
   return [...data.notes]
+    .filter((note) => normalizeEngagementId(note.engagementId) === resolvedEngagementId)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .map(rowToNote);
 }
 
-export function searchNotes(_db: null, query: string): Note[] {
+export function searchNotes(_db: null, query: string, engagementId?: string): Note[] {
   const data = readData();
   const q = query.toLowerCase();
+  const resolvedEngagementId = resolveEngagementId(data, engagementId);
   return data.notes
     .filter(n =>
-      n.title.toLowerCase().includes(q) ||
-      n.content.toLowerCase().includes(q)
+      normalizeEngagementId(n.engagementId) === resolvedEngagementId &&
+      (
+        n.title.toLowerCase().includes(q) ||
+        n.content.toLowerCase().includes(q)
+      )
     )
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .map(rowToNote);
@@ -120,6 +216,7 @@ function rowToNote(row: NoteRow): Note {
   }
   return {
     id: row.id,
+    engagementId: normalizeEngagementId(row.engagementId),
     title: row.title,
     content: row.content,
     tags,
@@ -131,12 +228,13 @@ function rowToNote(row: NoteRow): Note {
 
 // ── Command History ────────────────────────────────
 
-export function saveCommand(cmd: string, target: string): CommandRecord {
+export function saveCommand(cmd: string, target: string, engagementId?: string): CommandRecord {
   const data = readData();
   const record: CommandRecord = {
     command: cmd,
     target: target || '',
     timestamp: new Date().toISOString(),
+    engagementId: resolveEngagementId(data, engagementId),
   };
   data.commands.unshift(record);
   // Keep last 500 commands
@@ -147,15 +245,18 @@ export function saveCommand(cmd: string, target: string): CommandRecord {
   return record;
 }
 
-export function getCommands(): CommandRecord[] {
+export function getCommands(engagementId?: string): CommandRecord[] {
   const data = readData();
-  return data.commands;
+  const resolvedEngagementId = resolveEngagementId(data, engagementId);
+  return data.commands.filter((command) => normalizeEngagementId(command.engagementId) === resolvedEngagementId);
 }
 
-export function searchCommands(query: string, currentTarget?: string): CommandRecord[] {
+export function searchCommands(query: string, currentTarget?: string, engagementId?: string): CommandRecord[] {
   const data = readData();
   const q = query.toLowerCase();
+  const resolvedEngagementId = resolveEngagementId(data, engagementId);
   const results = data.commands.filter(c =>
+    normalizeEngagementId(c.engagementId) === resolvedEngagementId &&
     c.command.toLowerCase().includes(q)
   );
 
@@ -176,6 +277,227 @@ export function searchCommands(query: string, currentTarget?: string): CommandRe
   }
 
   return results;
+}
+
+// —— Findings ————————————————————————————————————————————————
+
+export function saveFinding(finding: Partial<Finding> & { id: string }): Finding {
+  const data = readData();
+  const now = new Date().toISOString();
+  const idx = data.findings.findIndex(f => f.id === finding.id);
+  const engagementId = resolveEngagementId(data, finding.engagementId);
+
+  if (idx >= 0) {
+    const existing = data.findings[idx];
+    const updated: FindingRow = {
+      id: finding.id,
+      engagementId,
+      kind: finding.kind ?? existing.kind,
+      target: finding.target ?? existing.target,
+      title: finding.title ?? existing.title,
+      summary: finding.summary ?? existing.summary,
+      source: finding.source ?? existing.source,
+      confidence: finding.confidence ?? existing.confidence,
+      tags: finding.tags ? JSON.stringify(finding.tags) : existing.tags,
+      metadata: finding.metadata ? JSON.stringify(finding.metadata) : existing.metadata,
+      relatedNoteId: finding.relatedNoteId ?? existing.relatedNoteId,
+      createdAt: existing.createdAt,
+      updatedAt: now,
+    };
+    data.findings[idx] = updated;
+    writeData(data);
+    return rowToFinding(updated);
+  }
+
+  const row: FindingRow = {
+    id: finding.id,
+    engagementId,
+    kind: finding.kind ?? 'note',
+    target: finding.target ?? '',
+    title: finding.title ?? 'Untitled finding',
+    summary: finding.summary ?? '',
+    source: finding.source ?? 'manual',
+    confidence: finding.confidence ?? 'medium',
+    tags: JSON.stringify(finding.tags ?? []),
+    metadata: JSON.stringify(finding.metadata ?? {}),
+    relatedNoteId: finding.relatedNoteId,
+    createdAt: now,
+    updatedAt: now,
+  };
+  data.findings.unshift(row);
+  writeData(data);
+  return rowToFinding(row);
+}
+
+export function getFindings(engagementId?: string): Finding[] {
+  const data = readData();
+  const resolvedEngagementId = resolveEngagementId(data, engagementId);
+  return [...data.findings]
+    .filter((finding) => normalizeEngagementId(finding.engagementId) === resolvedEngagementId)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .map(rowToFinding);
+}
+
+export function searchFindings(query: string, engagementId?: string): Finding[] {
+  const data = readData();
+  const q = query.toLowerCase();
+  const resolvedEngagementId = resolveEngagementId(data, engagementId);
+  return data.findings
+    .filter(f =>
+      normalizeEngagementId(f.engagementId) === resolvedEngagementId &&
+      (f.title.toLowerCase().includes(q) ||
+      f.summary.toLowerCase().includes(q) ||
+      f.target.toLowerCase().includes(q))
+    )
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .map(rowToFinding);
+}
+
+export function deleteFinding(id: string): void {
+  const data = readData();
+  data.findings = data.findings.filter(f => f.id !== id);
+  writeData(data);
+}
+
+function rowToFinding(row: FindingRow): Finding {
+  let tags: string[] = [];
+  let metadata: Record<string, string> = {};
+  try {
+    tags = typeof row.tags === 'string' ? JSON.parse(row.tags) : row.tags;
+  } catch {
+    tags = [];
+  }
+  try {
+    metadata = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata;
+  } catch {
+    metadata = {};
+  }
+  return {
+    id: row.id,
+    engagementId: normalizeEngagementId(row.engagementId),
+    kind: row.kind as Finding['kind'],
+    target: row.target,
+    title: row.title,
+    summary: row.summary,
+    source: row.source as Finding['source'],
+    confidence: row.confidence as Finding['confidence'],
+    tags,
+    metadata,
+    relatedNoteId: row.relatedNoteId,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+// -- Engagements -------------------------------------------------------------
+
+export function saveEngagement(engagement: Partial<Engagement> & { id: string }): Engagement {
+  const data = readData();
+  const now = new Date().toISOString();
+  const idx = data.engagements.findIndex((item) => item.id === engagement.id);
+
+  if (idx >= 0) {
+    const existing = data.engagements[idx];
+    const updated: EngagementRow = {
+      id: engagement.id,
+      name: engagement.name ?? existing.name,
+      primaryTarget: engagement.primaryTarget ?? existing.primaryTarget,
+      workspacePath: engagement.workspacePath ?? existing.workspacePath ?? `/workspace/${engagement.id}`,
+      tags: engagement.tags ? JSON.stringify(engagement.tags) : existing.tags,
+      createdAt: existing.createdAt,
+      updatedAt: now,
+    };
+    data.engagements[idx] = updated;
+    writeData(data);
+    return rowToEngagement(updated);
+  }
+
+  const row: EngagementRow = {
+    id: engagement.id,
+    name: engagement.name ?? 'Untitled Engagement',
+    primaryTarget: engagement.primaryTarget ?? '',
+    workspacePath: engagement.workspacePath ?? `/workspace/${engagement.id}`,
+    tags: JSON.stringify(engagement.tags ?? []),
+    createdAt: now,
+    updatedAt: now,
+  };
+  data.engagements.unshift(row);
+  writeData(data);
+  return rowToEngagement(row);
+}
+
+export function getEngagements(): Engagement[] {
+  const data = readData();
+  return [...data.engagements]
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .map(rowToEngagement);
+}
+
+export function deleteEngagement(id: string): void {
+  if (id === DEFAULT_ENGAGEMENT_ID) return;
+
+  const data = readData();
+  data.engagements = data.engagements.filter((engagement) => engagement.id !== id);
+  data.notes = data.notes.map((note) => (
+    normalizeEngagementId(note.engagementId) === id
+      ? { ...note, engagementId: DEFAULT_ENGAGEMENT_ID }
+      : note
+  ));
+  data.commands = data.commands.map((command) => (
+    normalizeEngagementId(command.engagementId) === id
+      ? { ...command, engagementId: DEFAULT_ENGAGEMENT_ID }
+      : command
+  ));
+  data.findings = data.findings.map((finding) => (
+    normalizeEngagementId(finding.engagementId) === id
+      ? { ...finding, engagementId: DEFAULT_ENGAGEMENT_ID }
+      : finding
+  ));
+
+  if (normalizeEngagementId(data.settings?.currentEngagementId) === id) {
+    data.settings = {
+      ...data.settings,
+      currentEngagementId: DEFAULT_ENGAGEMENT_ID,
+    };
+  }
+
+  writeData(ensureDataShape(data));
+}
+
+export function getCurrentEngagementId(): string {
+  const data = readData();
+  return resolveEngagementId(data);
+}
+
+export function setCurrentEngagementId(id: string): string {
+  const data = readData();
+  const resolvedId = data.engagements.some((engagement) => engagement.id === id)
+    ? id
+    : DEFAULT_ENGAGEMENT_ID;
+  data.settings = {
+    ...data.settings,
+    currentEngagementId: resolvedId,
+  };
+  writeData(data);
+  return resolvedId;
+}
+
+function rowToEngagement(row: EngagementRow): Engagement {
+  let tags: string[] = [];
+  try {
+    tags = typeof row.tags === 'string' ? JSON.parse(row.tags) : row.tags;
+  } catch {
+    tags = [];
+  }
+  return {
+    id: row.id,
+    name: row.name,
+    primaryTarget: row.primaryTarget,
+    workspacePath: row.workspacePath || `/workspace/${row.id}`,
+    tags,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }
 
 // ── API Key (encrypted via Electron safeStorage) ───

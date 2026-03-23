@@ -1,0 +1,2 @@
+# Force Unix line endings for files that run inside containers
+docker/**/*.sh text eol=lf

@@ -11,6 +11,9 @@ prowl-data.json
 Thumbs.db
 Desktop.ini
 
+# Claude session memory
+.claude-session.md
+
 # IDE
 .vscode/
 .idea/

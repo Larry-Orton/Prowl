@@ -15,19 +15,37 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('shell:exit', handler);
       return () => ipcRenderer.removeListener('shell:exit', handler);
     },
+    onKeywordAction: (callback: (id: string, action: any) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, id: string, action: any) => callback(id, action);
+      ipcRenderer.on('prowl:keyword-action', handler);
+      return () => ipcRenderer.removeListener('prowl:keyword-action', handler);
+    },
     removeDataListener: () => ipcRenderer.removeAllListeners('shell:data'),
+  },
+  engagements: {
+    save: (engagement: object) => ipcRenderer.invoke('engagements:save', engagement),
+    getAll: () => ipcRenderer.invoke('engagements:getAll'),
+    delete: (id: string) => ipcRenderer.invoke('engagements:delete', id),
+    getCurrent: () => ipcRenderer.invoke('engagements:getCurrent'),
+    setCurrent: (id: string) => ipcRenderer.invoke('engagements:setCurrent', id),
   },
   notes: {
     save: (note: object) => ipcRenderer.invoke('notes:save', note),
-    getAll: () => ipcRenderer.invoke('notes:getAll'),
-    search: (query: string) => ipcRenderer.invoke('notes:search', query),
+    getAll: (engagementId?: string) => ipcRenderer.invoke('notes:getAll', engagementId),
+    search: (query: string, engagementId?: string) => ipcRenderer.invoke('notes:search', query, engagementId),
     remove: (id: string) => ipcRenderer.invoke('notes:delete', id),
   },
   commands: {
-    save: (command: string, target: string) => ipcRenderer.invoke('commands:save', command, target),
-    getAll: () => ipcRenderer.invoke('commands:getAll'),
-    search: (query: string, currentTarget?: string) =>
-      ipcRenderer.invoke('commands:search', query, currentTarget),
+    save: (command: string, target: string, engagementId?: string) => ipcRenderer.invoke('commands:save', command, target, engagementId),
+    getAll: (engagementId?: string) => ipcRenderer.invoke('commands:getAll', engagementId),
+    search: (query: string, currentTarget?: string, engagementId?: string) =>
+      ipcRenderer.invoke('commands:search', query, currentTarget, engagementId),
+  },
+  findings: {
+    save: (finding: object) => ipcRenderer.invoke('findings:save', finding),
+    getAll: (engagementId?: string) => ipcRenderer.invoke('findings:getAll', engagementId),
+    search: (query: string, engagementId?: string) => ipcRenderer.invoke('findings:search', query, engagementId),
+    remove: (id: string) => ipcRenderer.invoke('findings:delete', id),
   },
   ai: {
     send: (messages: { role: string; content: string }[], systemPrompt: string) =>
@@ -60,6 +78,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   browser: {
     getSocksPort: () => ipcRenderer.invoke('browser:getSocksPort'),
     capturePageContent: (url: string) => ipcRenderer.invoke('browser:capturePageContent', url),
+  },
+  workspace: {
+    listFiles: (dirPath?: string) => ipcRenderer.invoke('workspace:listFiles', dirPath),
+    readFile: (filePath: string) => ipcRenderer.invoke('workspace:readFile', filePath),
+    deleteFile: (filePath: string) => ipcRenderer.invoke('workspace:deleteFile', filePath),
   },
   dialog: {
     saveFile: (content: string, defaultName: string) =>

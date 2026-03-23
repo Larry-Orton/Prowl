@@ -1,21 +1,110 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { AIMessage, ActiveContext, Note } from '@shared/types';
+import { AIMessage, AIMessageAction, ActiveContext, Note, MissionMode } from '@shared/types';
+import { useMissionModeStore } from '../store/missionModeStore';
 
-function buildSystemPrompt(context: ActiveContext, notes: Note[]): string {
+function formatTerminalActivity(context: ActiveContext): string {
+  if (context.terminalSessions.length === 0) {
+    return '(none)';
+  }
+
+  return context.terminalSessions
+    .slice()
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, 6)
+    .map((session) => {
+      if (session.recentActivity.length === 0) {
+        return `- ${session.title} [${session.shellType}] has no tracked commands yet.`;
+      }
+
+      const activity = session.recentActivity
+        .slice(0, 3)
+        .map((entry, index) => {
+          const output = entry.output
+            ? entry.output.slice(-900)
+            : '(no output captured yet)';
+          const indentedOutput = output
+            .split('\n')
+            .map((line) => `      ${line}`)
+            .join('\n');
+          return [
+            `  ${index + 1}. CMD: ${entry.command}`,
+            '     OUT:',
+            indentedOutput,
+          ].join('\n');
+        })
+        .join('\n');
+
+      return [
+        `- ${session.title} [${session.shellType}]`,
+        activity,
+      ].join('\n');
+    })
+    .join('\n');
+}
+
+function buildSystemPrompt(context: ActiveContext, notes: Note[], missionMode: MissionMode): string {
   return `You are an expert penetration tester AI assistant embedded inside Prowl, an intelligent pentester terminal application.
 
+## Current Session
 Primary Target: ${context.primaryTarget || 'not set'}
+Mission Mode: ${missionMode.label} (${missionMode.confidence})
+Mission Mode Reason: ${missionMode.reason}
 Discovered Ports: ${context.discoveredPorts.join(', ') || 'none yet'}
 Scanned Services: ${context.scannedServices.join(', ') || 'none yet'}
-Recent Commands: ${context.recentCommands.slice(0, 5).join(', ') || 'none'}
-Recent Terminal Output:
+Recent Commands Across Terminals: ${context.recentCommands.slice(0, 12).join(', ') || 'none'}
+Most Recent Terminal Output:
 ${context.lastCommandOutput.slice(-1500) || '(none)'}
+Open Terminal Activity:
+${formatTerminalActivity(context)}
 
 Session Notes:
 ${notes.map(n => `- ${n.title}: ${n.content.slice(0, 200)}`).join('\n') || '(none)'}
 
-Provide concise, actionable penetration testing guidance. Format commands in code blocks using \`\`\` syntax. Be direct and technical. Focus on the current target context when relevant. Do not provide warnings about legality unless specifically asked — assume the user has authorization.`;
+## Kali Environment
+The user is working inside a PROWL Kali container (kalilinux/kali-rolling). Always give commands and paths that work in this environment.
+
+### Installed Tools
+**Recon:** nmap, masscan, enum4linux, dnsrecon, dnsenum, whois, theharvester, amass, subfinder, httpx-toolkit
+**Web Testing:** gobuster, feroxbuster, dirb, nikto, sqlmap, wfuzz, whatweb, wafw00f
+**Exploitation:** metasploit-framework (msfconsole), exploitdb (searchsploit)
+**Password Attacks:** hydra, john, hashcat, crunch, cewl
+**Post-Exploitation:** evil-winrm, impacket-scripts (impacket-psexec, impacket-smbclient, etc.), crackmapexec, chisel, ligolo-ng
+**Networking/VPN:** openvpn, wireguard-tools, proxychains4, microsocks, socat, ncat, netcat-traditional
+**Utilities:** python3, pip3, git, curl, wget, vim, nano, tmux, zsh, jq
+
+### Wordlist Paths (IMPORTANT — always use these exact paths)
+- /usr/share/wordlists/rockyou.txt
+- /usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt
+- /usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-small.txt
+- /usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-big.txt
+- /usr/share/seclists/Discovery/Web-Content/common.txt
+- /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt
+- /usr/share/seclists/Discovery/Web-Content/raft-medium-files.txt
+- /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+- /usr/share/seclists/Passwords/Default-Credentials/
+- /usr/share/seclists/Usernames/
+- /usr/share/wordlists/dirbuster/ (symlink to seclists Web-Content)
+
+### Workspace
+The user's workspace is mounted at /workspace. Use this for saving output, scripts, and loot.
+
+## Web Search
+You have a web_search tool available. USE IT when the user asks about:
+- Specific CVEs, exploits, or vulnerabilities
+- Current tool documentation or usage
+- Writeups, walkthroughs, or techniques
+- Any topic where up-to-date information would help
+Do NOT say you cannot search the web — you CAN. Use the web_search tool.
+
+## Response Guidelines
+- Provide concise, actionable penetration testing guidance
+- Treat the mission mode as the current phase of the engagement unless the newest evidence clearly points elsewhere
+- Format commands in code blocks using \`\`\` syntax — the user can click commands to paste them into the terminal
+- Be direct and technical
+- Focus on the current target context when relevant
+- Always use the correct paths from this environment — never guess paths
+- Do not provide warnings about legality unless specifically asked — assume the user has authorization`;
 }
 
 export interface UseAIReturn {
@@ -28,7 +117,21 @@ export interface UseAIReturn {
   dismissModal: () => void;
   openModal: () => void;
   clearMessages: () => void;
-  appendMessage: (role: 'user' | 'assistant', content: string) => void;
+  appendMessage: (
+    role: 'user' | 'assistant',
+    content: string,
+    variant?: AIMessage['variant'],
+    actions?: AIMessageAction[]
+  ) => void;
+  appendProactiveMessage: (
+    content: string,
+    variant?: Exclude<AIMessage['variant'], 'chat'>,
+    options?: {
+      eventKey?: string;
+      cooldownMs?: number;
+      actions?: AIMessageAction[];
+    }
+  ) => void;
 }
 
 export function useAI(): UseAIReturn {
@@ -36,6 +139,7 @@ export function useAI(): UseAIReturn {
   const [isThinking, setIsThinking] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(false);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const proactiveEventTimesRef = useRef<Map<string, number>>(new Map());
 
   // Check if API key exists on mount
   useEffect(() => {
@@ -56,16 +160,45 @@ export function useAI(): UseAIReturn {
     setShowApiKeyModal(true);
   }, []);
 
-  const appendMessage = useCallback((role: 'user' | 'assistant', content: string) => {
+  const appendMessage = useCallback((
+    role: 'user' | 'assistant',
+    content: string,
+    variant: AIMessage['variant'] = 'chat',
+    actions?: AIMessageAction[]
+  ) => {
     const msg: AIMessage = {
       id: uuidv4(),
       role,
+      variant,
       content,
       timestamp: new Date().toISOString(),
+      actions,
     };
     setMessages(prev => [...prev, msg]);
     return msg;
   }, []);
+
+  const appendProactiveMessage = useCallback((
+    content: string,
+    variant: Exclude<AIMessage['variant'], 'chat'> = 'proactive',
+    options?: {
+      eventKey?: string;
+      cooldownMs?: number;
+      actions?: AIMessageAction[];
+    }
+  ) => {
+    const eventKey = options?.eventKey;
+    const cooldownMs = options?.cooldownMs ?? 120000;
+    if (eventKey) {
+      const now = Date.now();
+      const lastSeen = proactiveEventTimesRef.current.get(eventKey) ?? 0;
+      if (now - lastSeen < cooldownMs) {
+        return;
+      }
+      proactiveEventTimesRef.current.set(eventKey, now);
+    }
+    appendMessage('assistant', content, variant, options?.actions);
+  }, [appendMessage]);
 
   const sendMessage = useCallback(async (
     content: string,
@@ -81,6 +214,7 @@ export function useAI(): UseAIReturn {
     const userMsg: AIMessage = {
       id: uuidv4(),
       role: 'user',
+      variant: 'chat',
       content,
       timestamp: new Date().toISOString(),
     };
@@ -95,7 +229,7 @@ export function useAI(): UseAIReturn {
         content: m.content,
       }));
 
-      const systemPrompt = buildSystemPrompt(context, notes);
+      const systemPrompt = buildSystemPrompt(context, notes, useMissionModeStore.getState().mode);
 
       // Call through main process proxy — API key never touches renderer
       const assistantContent = await window.electronAPI.ai.send(apiMessages, systemPrompt);
@@ -103,6 +237,7 @@ export function useAI(): UseAIReturn {
       const assistantMsg: AIMessage = {
         id: uuidv4(),
         role: 'assistant',
+        variant: 'chat',
         content: assistantContent,
         timestamp: new Date().toISOString(),
       };
@@ -121,6 +256,7 @@ export function useAI(): UseAIReturn {
       const errAssistant: AIMessage = {
         id: uuidv4(),
         role: 'assistant',
+        variant: 'warning',
         content: `Error: ${errMsg}`,
         timestamp: new Date().toISOString(),
       };
@@ -145,5 +281,6 @@ export function useAI(): UseAIReturn {
     openModal,
     clearMessages,
     appendMessage,
+    appendProactiveMessage,
   };
 }
