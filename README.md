@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  If a terminal, a field notebook, and a slightly overinvested operator buddy moved into the same control room, this would be the result.
+  <a href="https://github.com/Larry-Orton/Prowl/releases/latest"><strong>Download Latest Release</strong></a>
 </p>
 
 ---
@@ -64,44 +64,37 @@ Good news:
 
 ## Install PROWL
 
-### Recommended: Install The Real App
+### Download
 
-If you are here to use PROWL and not accidentally adopt a build pipeline, install the packaged release:
+Grab the latest release from [GitHub Releases](https://github.com/Larry-Orton/Prowl/releases/latest).
 
-- **GitHub Releases**: `https://github.com/Larry-Orton/Prowl/releases`
+| Platform | Download | Notes |
+| --- | --- | --- |
+| **Windows** | `PROWL-Setup-0.1.0.exe` | NSIS installer, choose your install location |
+| **Windows** | `PROWL-0.1.0-portable.exe` | Portable single exe, no install needed |
+| **Windows** | `PROWL-0.1.0-win-portable.zip` | Portable zip, extract and run `PROWL.exe` |
+| **macOS** | Coming soon | |
+| **Linux** | Coming soon | |
 
-Download the installer that matches your platform:
+### Install In About 60 Seconds
 
-- **Windows**: `nsis` installer or `portable`
-- **macOS**: `dmg` or `zip`
-- **Linux**: `AppImage` or `deb`
+1. Download the file for your OS from the [latest release](https://github.com/Larry-Orton/Prowl/releases/latest).
+2. Run the installer or extract the portable build.
+3. Launch PROWL.
+4. Set your Anthropic API key if you want AI features.
+5. Build and start the Kali container if you want the full cockpit.
 
 That is the normal user path.
 That is the blessed path.
 That is the path where you do not end up explaining Electron rebuild logs to your future self.
 
-### Install In About 60 Seconds
-
-1. Open the latest release.
-2. Download the file for your OS.
-3. Install it like a normal desktop app.
-4. Launch PROWL.
-5. Set your API key if you want AI features.
-6. Build/start the Kali container if you want the full cockpit.
-
-### If You Do Not See A Release Yet
-
-That means the packaged build has not been published yet for your platform.
-
-You can still build from source, but that is now a **developer workflow**, not the recommended user install. Those steps live below in [For Developers](#for-developers).
-
-## First Launch: The Good Path
+## First Launch
 
 Here is the fastest way to stop staring at the UI and start using it:
 
-1. Launch PROWL from your installed app.
+1. Launch PROWL.
 2. Open the AI panel and add your Anthropic API key.
-3. Open the Kali/container panel and build the image if you have not already.
+3. Open the Kali/container panel and build the image (first time only, takes a few minutes).
 4. Start the Kali container.
 5. Create or select an engagement.
 6. Set your target with `target <ip-or-host>`.
@@ -131,7 +124,7 @@ These commands are intercepted by PROWL before they hit the shell:
 | Command | What it does |
 | --- | --- |
 | `target <ip>` | Set the active target for the current engagement |
-| `note <text>` | Save a note |
+| `note <text>` | Save a note (appends to active notebook if one is open) |
 | `notes add <text>` | Append to the active note or notebook |
 | `note #<n> <text>` | Append to a specific note by index |
 | `notebook <name>` | Open or reuse a notebook with that name |
@@ -142,14 +135,14 @@ These commands are intercepted by PROWL before they hit the shell:
 | `commands <tool>` | Ask AI for a tool reference guide |
 | `search <term>` | Search notes |
 | `export notes` | Export notes to Markdown |
-| `help` | Open command help |
+| `help` / `-help` | Open command help |
 | `hack help` | Ask AI for methodology guidance |
 
 ## Buttons Worth Knowing
 
 If you never read title bars and just click whatever looks suspicious, here is the cheat sheet:
 
-- **Palette button**: opens the command palette
+- **Palette button** or `Ctrl/Cmd+K`: opens the command palette
 - **Engagements button**: switch projects
 - **Mission mode button**: pin or release the current mode
 - **Split button**: turn one terminal into two
@@ -169,8 +162,7 @@ It can:
 - respond to normal prompts
 - react to target changes, discovered ports, services, browser scans, VPN state, container state, and new loot
 - suggest commands before you ask
-- create notes
-- save findings
+- create notes and save findings
 - open browser or workflow surfaces
 - follow the current mission mode
 
@@ -189,6 +181,8 @@ That unlocks:
 - browser routing through a SOCKS proxy
 - VPN workflows inside the tooling environment
 
+The Kali image builds once and is reused for every session. You do not need to rebuild it each time you launch PROWL.
+
 ### Embedded Browser
 
 The browser panel is there for actual recon, not moral support.
@@ -198,6 +192,10 @@ Use it to:
 - browse target web apps inside the app
 - scan a page and send extracted structure to AI
 - keep browser and terminal side-by-side during web work
+
+### VPN
+
+Upload your `.ovpn` file in the VPN panel and connect with one click. VPN traffic runs inside the Kali container so your host network is unaffected.
 
 ### Loot Manager
 
@@ -210,22 +208,6 @@ The loot manager lets you:
 - save loot directly into notes
 
 It also works off the host workspace path, which means your loot is still visible even if the Kali container is not currently running.
-
-## Build A Packaged App
-
-If you are building PROWL from source and want installers instead of a dev session:
-
-```bash
-npm run electron:build
-```
-
-Artifacts are written to `release/`.
-
-Current packaging targets:
-
-- **Windows**: `nsis`, `portable`
-- **macOS**: `dmg`, `zip`
-- **Linux**: `AppImage`, `deb`
 
 ## For Developers
 
@@ -257,13 +239,30 @@ Important:
 
 - Use `npm run setup`, not plain `npm install`, because PROWL rebuilds native Electron dependencies for Electron.
 - If `node` or `npm` are "not found" right after install, close and reopen your terminal so PATH updates apply.
-- This README intentionally does **not** tell users to run `npm run electron:dev`. That is an internal debugging workflow, opens DevTools behavior, and does not reflect the normal packaged PROWL experience.
+
+### Build A Packaged App
+
+If you are building PROWL from source and want installers:
+
+```bash
+npm run electron:build
+```
+
+Artifacts are written to `release/`.
+
+Current packaging targets:
+
+- **Windows**: `nsis`, `portable`
+- **macOS**: `dmg`, `zip` (coming soon)
+- **Linux**: `AppImage`, `deb` (coming soon)
+
+### Project Structure
 
 ```text
 src/
   main/                 Electron main process
     index.ts            IPC handlers, workspace access, browser capture
-    shellManager.ts     Local + Kali shell orchestration
+    shellManager.ts     Local + Kali shell orchestration, keyword interception
     containerManager.ts Docker/Podman lifecycle, VPN, tool environment
     aiProxy.ts          AI proxying from the trusted side
     preload.ts          Renderer bridge
@@ -281,7 +280,7 @@ src/
   shared/
     types.ts            Shared interfaces
     constants.ts        Shared constants
-    terminalKeywords.ts Terminal keyword parser
+    terminalKeywords.ts Terminal keyword parser (shared between main + renderer)
 
 docker/
   Dockerfile            Kali image
@@ -289,17 +288,15 @@ docker/
 
 scripts/
   setup.js              Electron/native dependency setup
-  install.sh            Linux/macOS installer
-  install.ps1           Windows installer
 ```
 
 Helpful commands:
 
 ```bash
-npm run setup
-npm run build
-npm run electron:build
-npm run typecheck
+npm run setup             # Install deps and rebuild native modules
+npm run build             # Build main + renderer
+npm run electron:build    # Build and package installers
+npm run typecheck         # Type-check everything
 ```
 
 ## A Brief And Necessary Legal Vibe Check
