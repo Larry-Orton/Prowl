@@ -28,6 +28,7 @@ import { useSessionStore } from './store/sessionStore';
 import { useThemeStore } from './store/themeStore';
 import { useNotesStore } from './store/notesStore';
 import { useMissionModeStore } from './store/missionModeStore';
+import { useEngagementStore } from './store/engagementStore';
 
 type ObjectivePriority = 'quiet' | 'focus' | 'opportunity' | 'urgent';
 
@@ -147,6 +148,7 @@ const App: React.FC = () => {
   const activeNotebookId = useNotesStore(s => s.activeNotebookId);
   const setActiveNotebook = useNotesStore(s => s.setActiveNotebook);
   const setNotesSearchQuery = useNotesStore(s => s.setSearchQuery);
+  const updateEngagementInStore = useEngagementStore(s => s.updateEngagement);
   const initTheme = useThemeStore(s => s.initTheme);
   const missionMode = useMissionModeStore(s => s.mode);
   const setAutoMissionMode = useMissionModeStore(s => s.setAutoMode);
@@ -581,11 +583,19 @@ const App: React.FC = () => {
       case 'target': {
         setTarget(action.ip);
         if (currentEngagement) {
+          const nextWorkspacePath = buildWorkspacePath(action.ip, currentEngagement.id);
+          updateEngagementInStore({
+            ...currentEngagement,
+            primaryTarget: action.ip,
+            workspacePath: nextWorkspacePath,
+            updatedAt: new Date().toISOString(),
+          });
           void saveEngagement({
             id: currentEngagement.id,
             name: currentEngagement.name,
             primaryTarget: action.ip,
             tags: currentEngagement.tags,
+            workspacePath: nextWorkspacePath,
           });
         }
         break;
@@ -719,7 +729,7 @@ const App: React.FC = () => {
   }, [
     currentEngagement, saveEngagement, setTarget, quickSaveFromTerminal, saveNote, notes, context,
     sendMessage, searchNotes, exportNotes, activeTabId, selectedNoteId,
-    activeNotebookId, setActiveNotebook, setSelectedNote
+    activeNotebookId, setActiveNotebook, setSelectedNote, updateEngagementInStore
   ]);
 
   // Auto-log to active notebook
@@ -1617,57 +1627,11 @@ const App: React.FC = () => {
               </select>
             </div>
           )}
-          {showBrowser ? (
-            <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-              {/* Terminal half */}
-              <div
-                style={{
-                  flex: 1,
-                  display: 'flex',
-                  flexDirection: layout === 'split' && visiblePaneIds.length > 1 ? 'row' : 'column',
-                  overflow: 'hidden',
-                  minWidth: 0,
-                  gap: layout === 'split' && visiblePaneIds.length > 1 ? 1 : 0,
-                }}
-              >
-                {tabs.map(tab => (
-                  <div
-                    key={tab.id}
-                    data-tab-id={tab.id}
-                    style={{
-                      flex: 1,
-                      display: visiblePaneIds.includes(tab.id) ? 'flex' : 'none',
-                      flexDirection: 'column',
-                      minHeight: 0,
-                      minWidth: 0,
-                      borderRight: layout === 'split' && visiblePaneIds.length > 1 && tab.id === activeTabId ? '1px solid var(--border)' : 'none',
-                    }}
-                    onClick={() => setActiveTab(tab.id)}
-                  >
-                    <Terminal
-                      tabId={tab.id}
-                      isActive={tab.id === activeTabId}
-                      onKeywordCommand={handleKeywordCommand}
-                      onCommandLogged={(cmd) => appendToNotebook(`\n[CMD] ${cmd}`)}
-                    />
-                  </div>
-                ))}
-              </div>
-              {/* Browser half */}
-              <div style={{ flex: 1, borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                <BrowserPanel
-                  socksPort={socksPort}
-                  onPageContent={handlePageContent}
-                  initialUrl={browserInitialUrl}
-                  onInitialUrlHandled={() => setBrowserInitialUrl('')}
-                />
-              </div>
-            </div>
-          ) : (
+          <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minWidth: 0 }}>
             <div
               style={{
-                display: 'flex',
                 flex: 1,
+                display: 'flex',
                 flexDirection: layout === 'split' && visiblePaneIds.length > 1 ? 'row' : 'column',
                 overflow: 'hidden',
                 minWidth: 0,
@@ -1679,7 +1643,7 @@ const App: React.FC = () => {
                   key={tab.id}
                   data-tab-id={tab.id}
                   style={{
-                      flex: 1,
+                    flex: 1,
                     display: visiblePaneIds.includes(tab.id) ? 'flex' : 'none',
                     flexDirection: 'column',
                     minHeight: 0,
@@ -1697,7 +1661,25 @@ const App: React.FC = () => {
                 </div>
               ))}
             </div>
-          )}
+            {showBrowser && (
+              <div
+                style={{
+                  flex: 1,
+                  borderLeft: '1px solid var(--border)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  minWidth: 0,
+                }}
+              >
+                <BrowserPanel
+                  socksPort={socksPort}
+                  onPageContent={handlePageContent}
+                  initialUrl={browserInitialUrl}
+                  onInitialUrlHandled={() => setBrowserInitialUrl('')}
+                />
+              </div>
+            )}
+          </div>
           {tabs.length === 0 && (
             <div style={{
               flex: 1,
