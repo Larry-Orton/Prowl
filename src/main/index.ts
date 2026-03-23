@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, session } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import path from 'path';
 import fs from 'fs';
 import { shellManager } from './shellManager';
@@ -474,6 +475,44 @@ app.whenReady().then(() => {
 
   // Detect container runtime on startup
   containerManager.detectRuntime();
+
+  // ── Auto-update (packaged builds only) ──────────
+  if (app.isPackaged) {
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+
+    autoUpdater.on('update-available', (info) => {
+      console.log('[PROWL] Update available:', info.version);
+      mainWindow?.webContents.send('updater:status', 'available', info.version);
+    });
+
+    autoUpdater.on('update-downloaded', (info) => {
+      console.log('[PROWL] Update downloaded:', info.version);
+      mainWindow?.webContents.send('updater:status', 'downloaded', info.version);
+      // Notify user — update installs on next quit
+      dialog.showMessageBox({
+        type: 'info',
+        title: 'PROWL Update Ready',
+        message: `Version ${info.version} has been downloaded and will be installed when you close PROWL.`,
+        buttons: ['Restart Now', 'Later'],
+      }).then((result) => {
+        if (result.response === 0) {
+          autoUpdater.quitAndInstall();
+        }
+      });
+    });
+
+    autoUpdater.on('error', (err) => {
+      console.error('[PROWL] Auto-update error:', err.message);
+    });
+
+    // Check for updates after a short delay
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch((err: Error) => {
+        console.error('[PROWL] Update check failed:', err.message);
+      });
+    }, 5000);
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

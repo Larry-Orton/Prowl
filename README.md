@@ -76,6 +76,8 @@ Grab the latest release from [GitHub Releases](https://github.com/Larry-Orton/Pr
 | **macOS** | Coming soon | |
 | **Linux** | Coming soon | |
 
+> **Windows SmartScreen warning**: Because PROWL is not yet code-signed, Windows may show a "Windows protected your PC" warning on first run. Click **"More info"** then **"Run anyway"**. This is expected for open-source apps without a paid signing certificate. PROWL auto-updates after the first install, so you only deal with this once.
+
 ### Install In About 60 Seconds
 
 1. Download the file for your OS from the [latest release](https://github.com/Larry-Orton/Prowl/releases/latest).

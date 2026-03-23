@@ -1,6 +1,6 @@
 {
   "name": "prowl",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Intelligent pentester terminal",
   "author": "Larry Orton <orton.larry84@gmail.com>",
   "main": "dist/main/main/index.js",
@@ -17,6 +17,7 @@
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
+    "electron-updater": "^6.8.3",
     "node-pty": "^1.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -39,11 +40,23 @@
       {
         "from": "docker",
         "to": "docker",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Larry-Orton",
+        "repo": "Prowl"
       }
     ],
     "win": {
-      "target": ["nsis", "portable"],
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "icon": "assets/logo.ico"
     },
     "nsis": {
@@ -53,12 +66,18 @@
       "uninstallerIcon": "assets/logo.ico"
     },
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "assets/logo.png",
       "category": "public.app-category.developer-tools"
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "icon": "assets/logo.png",
       "category": "Development"
     }
