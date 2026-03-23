@@ -63,7 +63,15 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "installerIcon": "assets/logo.ico",
-      "uninstallerIcon": "assets/logo.ico"
+      "uninstallerIcon": "assets/logo.ico",
+      "installerSidebar": "assets/installer-sidebar.bmp",
+      "uninstallerSidebar": "assets/installer-sidebar.bmp",
+      "installerHeader": "assets/installer-header.bmp",
+      "installerHeaderIcon": "assets/logo.ico",
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "PROWL"
     },
     "mac": {
       "target": [

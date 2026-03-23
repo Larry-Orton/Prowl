@@ -13,6 +13,7 @@ import HelpModal from './components/HelpModal';
 import type { AIMessageAction, MissionModeId } from '@shared/types';
 import { DEFAULT_ENGAGEMENT_ID, CRITICAL_PORTS } from '@shared/constants';
 import type { KeywordAction } from '@shared/terminalKeywords';
+import { buildWorkspacePath } from '@shared/workspacePaths';
 import { inferMissionMode, MISSION_MODE_META } from './lib/missionMode';
 import { resolveNotebookAIIntent, type NotebookAIIntent } from './lib/notebookAI';
 import { useEngagements } from './hooks/useEngagements';
@@ -411,16 +412,21 @@ const App: React.FC = () => {
     if (hintedTargetRef.current === context.primaryTarget) {
       return;
     }
+    const targetWorkspacePath = buildWorkspacePath(
+      context.primaryTarget,
+      currentEngagementId || DEFAULT_ENGAGEMENT_ID,
+    );
     hintedTargetRef.current = context.primaryTarget;
     publishEvent({
       type: 'target_set',
       target: context.primaryTarget,
+      workspacePath: targetWorkspacePath,
       actions: [
         {
           id: 'target-scan',
           label: 'Run full TCP scan',
           type: 'run_command',
-          payload: `nmap -Pn -p- --min-rate 1000 ${context.primaryTarget} -oN ${currentWorkspacePath}/${context.primaryTarget}-full-tcp.txt`,
+          payload: `nmap -Pn -p- --min-rate 1000 ${context.primaryTarget} -oN ${targetWorkspacePath}/${context.primaryTarget}-full-tcp.txt`,
         },
         {
           id: 'target-note',
@@ -430,7 +436,7 @@ const App: React.FC = () => {
         },
       ],
     });
-  }, [context.primaryTarget, currentWorkspacePath, publishEvent]);
+  }, [context.primaryTarget, currentEngagementId, publishEvent]);
 
   useEffect(() => {
     if (!context.primaryTarget) return;
@@ -463,6 +469,7 @@ const App: React.FC = () => {
     publishEvent({
       type: 'ports_discovered',
       context,
+      workspacePath: currentWorkspacePath,
       actions: [
         {
           id: 'ports-services',
@@ -526,6 +533,7 @@ const App: React.FC = () => {
     publishEvent({
       type: 'services_discovered',
       context,
+      workspacePath: currentWorkspacePath,
       actions: [
         {
           id: 'services-ai',
@@ -541,7 +549,7 @@ const App: React.FC = () => {
         },
       ],
     });
-  }, [context, publishEvent]);
+  }, [context, currentWorkspacePath, publishEvent]);
 
   useEffect(() => {
     if (!context.primaryTarget) return;
@@ -578,7 +586,6 @@ const App: React.FC = () => {
             name: currentEngagement.name,
             primaryTarget: action.ip,
             tags: currentEngagement.tags,
-            workspacePath: currentEngagement.workspacePath,
           });
         }
         break;

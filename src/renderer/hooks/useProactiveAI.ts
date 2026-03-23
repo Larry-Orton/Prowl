@@ -34,7 +34,7 @@ export function useProactiveAI({
     switch (event.type) {
       case 'target_set': {
         appendProactiveMessage(
-          buildTargetSetHint(event.target),
+          buildTargetSetHint(event.target, event.workspacePath),
           'suggestion',
           { eventKey: `target:${event.target}`, cooldownMs: 300000, actions: event.actions }
         );
@@ -44,7 +44,7 @@ export function useProactiveAI({
 
       case 'ports_discovered': {
         const signature = `${event.context.primaryTarget}|${event.context.discoveredPorts.join(',')}`;
-        const hint = buildPortDiscoveryHint(event.context);
+        const hint = buildPortDiscoveryHint(event.context, event.workspacePath);
         if (!hint) return;
         appendProactiveMessage(
           hint,
@@ -57,7 +57,7 @@ export function useProactiveAI({
 
       case 'services_discovered': {
         const signature = `${event.context.primaryTarget}|${event.context.scannedServices.join('|')}`;
-        const hint = buildServiceDiscoveryHint(event.context);
+        const hint = buildServiceDiscoveryHint(event.context, event.workspacePath);
         if (!hint) return;
         appendProactiveMessage(
           hint,

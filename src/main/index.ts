@@ -62,6 +62,42 @@ function toWorkspaceContainerPath(hostPath: string): string {
   return posixRelative ? `/workspace/${posixRelative}` : '/workspace';
 }
 
+function migrateWorkspaceDirectory(previousWorkspacePath?: string, nextWorkspacePath?: string): void {
+  if (!previousWorkspacePath || !nextWorkspacePath || previousWorkspacePath === nextWorkspacePath) {
+    return;
+  }
+
+  const workspaceRoot = path.resolve(containerManager.getWorkspacePath());
+  const previousHostPath = resolveWorkspaceHostPath(previousWorkspacePath);
+  const nextHostPath = resolveWorkspaceHostPath(nextWorkspacePath);
+
+  if (previousHostPath === nextHostPath || previousHostPath === workspaceRoot) {
+    fs.mkdirSync(nextHostPath, { recursive: true });
+    return;
+  }
+
+  if (!fs.existsSync(previousHostPath)) {
+    fs.mkdirSync(nextHostPath, { recursive: true });
+    return;
+  }
+
+  fs.mkdirSync(path.dirname(nextHostPath), { recursive: true });
+
+  if (!fs.existsSync(nextHostPath)) {
+    fs.renameSync(previousHostPath, nextHostPath);
+    return;
+  }
+
+  const nextEntries = fs.readdirSync(nextHostPath);
+  if (nextEntries.length === 0) {
+    fs.rmSync(nextHostPath, { recursive: true, force: true });
+    fs.renameSync(previousHostPath, nextHostPath);
+    return;
+  }
+
+  fs.mkdirSync(nextHostPath, { recursive: true });
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -140,7 +176,11 @@ ipcMain.on('shell:resize', (_, id: string, cols: number, rows: number) => {
 });
 
 ipcMain.handle('engagements:save', async (_, engagement) => {
+  const previous = engagement.id
+    ? getEngagements().find((item) => item.id === engagement.id)
+    : undefined;
   const saved = saveEngagement(engagement);
+  migrateWorkspaceDirectory(previous?.workspacePath, saved.workspacePath);
   fs.mkdirSync(resolveWorkspaceHostPath(saved.workspacePath), { recursive: true });
   return saved;
 });

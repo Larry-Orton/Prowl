@@ -1,20 +1,25 @@
 import type { ActiveContext } from '@shared/types';
 
+function outputPath(workspacePath: string | undefined, fileName: string): string {
+  const basePath = (workspacePath || '/workspace').replace(/\/+$/, '');
+  return `${basePath}/${fileName}`;
+}
+
 function hasAnyPorts(context: ActiveContext, ports: number[]): boolean {
   return ports.some(port => context.discoveredPorts.includes(port));
 }
 
-export function buildTargetSetHint(target: string): string {
+export function buildTargetSetHint(target: string, workspacePath?: string): string {
   return [
     `Prowl noticed a new target: ${target}.`,
     'Start broad, then narrow once the services are real.',
     '```bash',
-    `nmap -Pn -p- --min-rate 1000 ${target} -oN /workspace/${target}-full-tcp.txt`,
+    `nmap -Pn -p- --min-rate 1000 ${target} -oN ${outputPath(workspacePath, `${target}-full-tcp.txt`)}`,
     '```',
   ].join('\n');
 }
 
-export function buildPortDiscoveryHint(context: ActiveContext): string | null {
+export function buildPortDiscoveryHint(context: ActiveContext, workspacePath?: string): string | null {
   const { primaryTarget } = context;
   if (!primaryTarget || context.discoveredPorts.length === 0) {
     return null;
@@ -26,7 +31,7 @@ export function buildPortDiscoveryHint(context: ActiveContext): string | null {
       'Push web recon early so we can map routes, tech, and hidden content before going deep.',
       '```bash',
       `whatweb http://${primaryTarget}`,
-      `gobuster dir -u http://${primaryTarget} -w /usr/share/seclists/Discovery/Web-Content/common.txt -o /workspace/${primaryTarget}-gobuster.txt`,
+      `gobuster dir -u http://${primaryTarget} -w /usr/share/seclists/Discovery/Web-Content/common.txt -o ${outputPath(workspacePath, `${primaryTarget}-gobuster.txt`)}`,
       '```',
     ].join('\n');
   }
@@ -37,7 +42,7 @@ export function buildPortDiscoveryHint(context: ActiveContext): string | null {
       'Check shares and null session behavior before reaching for louder actions.',
       '```bash',
       `smbclient -L //${primaryTarget}/ -N`,
-      `enum4linux -a ${primaryTarget} | tee /workspace/${primaryTarget}-enum4linux.txt`,
+      `enum4linux -a ${primaryTarget} | tee ${outputPath(workspacePath, `${primaryTarget}-enum4linux.txt`)}`,
       '```',
     ].join('\n');
   }
@@ -66,12 +71,12 @@ export function buildPortDiscoveryHint(context: ActiveContext): string | null {
     `Prowl noticed new listening ports on ${primaryTarget}.`,
     'Lock in service fingerprints before choosing a path.',
     '```bash',
-    `nmap -sV -sC ${primaryTarget} -oN /workspace/${primaryTarget}-services.txt`,
+    `nmap -sV -sC ${primaryTarget} -oN ${outputPath(workspacePath, `${primaryTarget}-services.txt`)}`,
     '```',
   ].join('\n');
 }
 
-export function buildServiceDiscoveryHint(context: ActiveContext): string | null {
+export function buildServiceDiscoveryHint(context: ActiveContext, workspacePath?: string): string | null {
   const { primaryTarget, scannedServices } = context;
   if (!primaryTarget || scannedServices.length === 0) {
     return null;
@@ -106,7 +111,7 @@ export function buildServiceDiscoveryHint(context: ActiveContext): string | null
       `Prowl noticed a database service on ${primaryTarget}.`,
       'Confirm exposure and versioning before attempting auth or dumping paths.',
       '```bash',
-      `nmap -sV ${primaryTarget} -p ${context.discoveredPorts.join(',')}`,
+      `nmap -sV ${primaryTarget} -p ${context.discoveredPorts.join(',')} -oN ${outputPath(workspacePath, `${primaryTarget}-db-services.txt`)}`,
       '```',
     ].join('\n');
   }

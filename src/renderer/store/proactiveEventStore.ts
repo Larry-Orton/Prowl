@@ -2,9 +2,9 @@ import { create } from 'zustand';
 import type { ActiveContext, AIMessageAction } from '@shared/types';
 
 export type ProactiveEvent =
-  | { type: 'target_set'; target: string; actions?: AIMessageAction[] }
-  | { type: 'ports_discovered'; context: ActiveContext; actions?: AIMessageAction[] }
-  | { type: 'services_discovered'; context: ActiveContext; actions?: AIMessageAction[] }
+  | { type: 'target_set'; target: string; workspacePath?: string; actions?: AIMessageAction[] }
+  | { type: 'ports_discovered'; context: ActiveContext; workspacePath?: string; actions?: AIMessageAction[] }
+  | { type: 'services_discovered'; context: ActiveContext; workspacePath?: string; actions?: AIMessageAction[] }
   | { type: 'browser_scanned'; url: string; content: string }
   | { type: 'vpn_connected'; ip?: string; actions?: AIMessageAction[] }
   | { type: 'container_running'; actions?: AIMessageAction[] }

@@ -278,7 +278,7 @@ const WorkspacePanel: React.FC<WorkspacePanelProps> = ({ onClose }) => {
               </div>
               <div>No loot yet</div>
               <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>
-                Save output with: <code>nmap -oN /workspace/scan.txt</code>
+                Save output with: <code>nmap -oN {(currentEngagement?.workspacePath || '/workspace')}/scan.txt</code>
               </div>
             </div>
           )}

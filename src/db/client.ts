@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { app, safeStorage } from 'electron';
 import { DEFAULT_ENGAGEMENT_ID, DEFAULT_ENGAGEMENT_NAME } from '../shared/constants';
+import { buildWorkspacePath } from '../shared/workspacePaths';
 import type {
   Note,
   NoteRow,
@@ -44,7 +45,7 @@ function createDefaultEngagementRow(): EngagementRow {
     id: DEFAULT_ENGAGEMENT_ID,
     name: DEFAULT_ENGAGEMENT_NAME,
     primaryTarget: '',
-    workspacePath: `/workspace/${DEFAULT_ENGAGEMENT_ID}`,
+    workspacePath: buildWorkspacePath('', DEFAULT_ENGAGEMENT_ID),
     tags: '[]',
     createdAt: now,
     updatedAt: now,
@@ -91,7 +92,7 @@ function ensureDataShape(input: Partial<ProwlData> | undefined): ProwlData {
   }));
   data.engagements = data.engagements.map((engagement) => ({
     ...engagement,
-    workspacePath: engagement.workspacePath || `/workspace/${engagement.id}`,
+    workspacePath: engagement.workspacePath || buildWorkspacePath(engagement.primaryTarget, engagement.id),
     tags: engagement.tags || '[]',
   }));
 
@@ -402,7 +403,10 @@ export function saveEngagement(engagement: Partial<Engagement> & { id: string })
       id: engagement.id,
       name: engagement.name ?? existing.name,
       primaryTarget: engagement.primaryTarget ?? existing.primaryTarget,
-      workspacePath: engagement.workspacePath ?? existing.workspacePath ?? `/workspace/${engagement.id}`,
+      workspacePath: engagement.workspacePath ?? buildWorkspacePath(
+        engagement.primaryTarget ?? existing.primaryTarget,
+        engagement.id,
+      ),
       tags: engagement.tags ? JSON.stringify(engagement.tags) : existing.tags,
       createdAt: existing.createdAt,
       updatedAt: now,
@@ -416,7 +420,10 @@ export function saveEngagement(engagement: Partial<Engagement> & { id: string })
     id: engagement.id,
     name: engagement.name ?? 'Untitled Engagement',
     primaryTarget: engagement.primaryTarget ?? '',
-    workspacePath: engagement.workspacePath ?? `/workspace/${engagement.id}`,
+    workspacePath: engagement.workspacePath ?? buildWorkspacePath(
+      engagement.primaryTarget,
+      engagement.id,
+    ),
     tags: JSON.stringify(engagement.tags ?? []),
     createdAt: now,
     updatedAt: now,
@@ -493,7 +500,7 @@ function rowToEngagement(row: EngagementRow): Engagement {
     id: row.id,
     name: row.name,
     primaryTarget: row.primaryTarget,
-    workspacePath: row.workspacePath || `/workspace/${row.id}`,
+    workspacePath: row.workspacePath || buildWorkspacePath(row.primaryTarget, row.id),
     tags,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
