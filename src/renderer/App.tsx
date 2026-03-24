@@ -14,6 +14,19 @@ import type { AIMessageAction, MissionModeId } from '@shared/types';
 import { DEFAULT_ENGAGEMENT_ID, CRITICAL_PORTS } from '@shared/constants';
 import type { KeywordAction } from '@shared/terminalKeywords';
 import { buildWorkspacePath } from '@shared/workspacePaths';
+import {
+  buildCanonicalNotebookContent,
+  buildLeadSimplificationPrompt,
+  buildLeadSystemPrompt,
+  buildLeadUserPrompt,
+  buildNotebookScribeSystemPrompt,
+  buildNotebookScribeUserPrompt,
+  getLeadCommandComplexityIssue,
+  inferNotebookSectionFromText,
+  mergeCanonicalNotebook,
+  parseLeadAnalysis,
+  parseNotebookScribeResult,
+} from './lib/aiLead';
 import { inferMissionMode, MISSION_MODE_META } from './lib/missionMode';
 import { resolveNotebookAIIntent, type NotebookAIIntent } from './lib/notebookAI';
 import { useEngagements } from './hooks/useEngagements';
@@ -21,6 +34,7 @@ import { useNotes } from './hooks/useNotes';
 import { useCommands } from './hooks/useCommands';
 import { useFindings } from './hooks/useFindings';
 import { useAI } from './hooks/useAI';
+import { useWorkspaceIntel } from './hooks/useWorkspaceIntel';
 import { useProactiveAI } from './hooks/useProactiveAI';
 import { useTerminalStore } from './store/terminalStore';
 import { useProactiveEventStore } from './store/proactiveEventStore';
@@ -39,6 +53,30 @@ interface ObjectiveCard {
   summary: string;
   contextLabel?: string;
   action?: AIMessageAction;
+}
+
+function detectPromptReady(output: string, shellType: 'local' | 'kali'): boolean {
+  const lines = output
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .slice(-4);
+
+  if (lines.length === 0) {
+    return false;
+  }
+
+  const recent = lines.join('\n');
+
+  if (shellType === 'local' && /(?:^|\n)PS [^\n]*>\s*$/m.test(recent)) {
+    return true;
+  }
+
+  return (
+    /(?:^|\n).*└─[#>$]\s*$/m.test(recent)
+    || /(?:^|\n)[^\n]*[#$>]\s*$/m.test(recent)
+  );
 }
 
 const APIKeyModal: React.FC<{
@@ -87,12 +125,16 @@ const App: React.FC = () => {
   const [showNotes, setShowNotes] = useState(true);
   const [showAI, setShowAI] = useState(false);
   const [showBrowser, setShowBrowser] = useState(false);
+  const [browserMode, setBrowserMode] = useState<'dock' | 'focus'>('dock');
+  const [browserWidth, setBrowserWidth] = useState(440);
+  const [browserSessionUrl, setBrowserSessionUrl] = useState('');
   const [showEngagementPanel, setShowEngagementPanel] = useState(false);
   const [showMissionModePanel, setShowMissionModePanel] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [aiInitialInput, setAiInitialInput] = useState('');
   const [browserInitialUrl, setBrowserInitialUrl] = useState('');
   const [dismissedObjectiveKey, setDismissedObjectiveKey] = useState<string | null>(null);
+  const [queuedTerminalCommands, setQueuedTerminalCommands] = useState<Record<string, string>>({});
   const [workspaceOpenRequest, setWorkspaceOpenRequest] = useState(0);
   const [findingsOpenRequest, setFindingsOpenRequest] = useState(0);
   const [timelineOpenRequest, setTimelineOpenRequest] = useState(0);
@@ -100,19 +142,28 @@ const App: React.FC = () => {
   const [notesWidth, setNotesWidth] = useState(220);
   const [aiWidth, setAiWidth] = useState(280);
   const [showHelpModal, setShowHelpModal] = useState(false);
-  const isDraggingRef = useRef<'notes' | 'ai' | null>(null);
+  const [leadThinkingLabel, setLeadThinkingLabel] = useState<string | null>(null);
+  const isDraggingRef = useRef<'notes' | 'ai' | 'browser' | null>(null);
 
-  const handleResizeMouseDown = useCallback((panel: 'notes' | 'ai') => (e: React.MouseEvent) => {
+  const handleResizeMouseDown = useCallback((panel: 'notes' | 'ai' | 'browser') => (e: React.MouseEvent) => {
     e.preventDefault();
     isDraggingRef.current = panel;
     const startX = e.clientX;
-    const startWidth = panel === 'notes' ? notesWidth : aiWidth;
+    const startWidth = panel === 'notes'
+      ? notesWidth
+      : panel === 'ai'
+        ? aiWidth
+        : browserWidth;
 
     const onMouseMove = (me: MouseEvent) => {
       const delta = panel === 'notes' ? me.clientX - startX : startX - me.clientX;
-      const newWidth = Math.max(150, Math.min(600, startWidth + delta));
+      const constraints = panel === 'browser'
+        ? { min: 280, max: 1200 }
+        : { min: 150, max: 600 };
+      const newWidth = Math.max(constraints.min, Math.min(constraints.max, startWidth + delta));
       if (panel === 'notes') setNotesWidth(newWidth);
-      else setAiWidth(newWidth);
+      else if (panel === 'ai') setAiWidth(newWidth);
+      else setBrowserWidth(newWidth);
     };
 
     const onMouseUp = () => {
@@ -127,7 +178,7 @@ const App: React.FC = () => {
     document.addEventListener('mouseup', onMouseUp);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
-  }, [notesWidth, aiWidth]);
+  }, [aiWidth, browserWidth, notesWidth]);
   const {
     tabs,
     activeTabId,
@@ -140,6 +191,7 @@ const App: React.FC = () => {
   } = useTerminalStore();
   const lastProactiveEvent = useProactiveEventStore(s => s.lastEvent);
   const proactiveEvents = useProactiveEventStore(s => s.events);
+  const clearProactiveEvents = useProactiveEventStore(s => s.clearEvents);
   const context = useSessionStore(s => s.context);
   const setTarget = useSessionStore(s => s.setTarget);
   const resetContext = useSessionStore(s => s.resetContext);
@@ -161,6 +213,7 @@ const App: React.FC = () => {
     saveEngagement,
     selectEngagement,
     deleteEngagement,
+    resetEngagementMemory,
   } = useEngagements();
   const currentWorkspacePath = currentEngagement?.workspacePath
     || `/workspace/${currentEngagementId || DEFAULT_ENGAGEMENT_ID}`;
@@ -177,9 +230,11 @@ const App: React.FC = () => {
     quickSaveFromTerminal,
     quickSaveFromAI,
     notes,
+    reloadNotes,
   } = useNotes();
-  const { commands } = useCommands();
-  const { findings, saveFinding } = useFindings();
+  const { commands, reloadCommands } = useCommands();
+  const { findings, saveFinding, reloadFindings } = useFindings();
+  const { workspaceIntel } = useWorkspaceIntel(currentWorkspacePath);
 
   const {
     messages,
@@ -187,9 +242,12 @@ const App: React.FC = () => {
     hasApiKey,
     showApiKeyModal,
     sendMessage,
+    runBackgroundTask,
     saveApiKey,
     dismissModal,
     openModal,
+    clearMessages,
+    appendMessage,
     appendProactiveMessage,
   } = useAI();
   const { publishEvent } = useProactiveAI({
@@ -201,6 +259,11 @@ const App: React.FC = () => {
   const hintedServicesRef = useRef('');
   const capturedPortFindingsRef = useRef<Set<string>>(new Set());
   const capturedServiceFindingsRef = useRef<Set<string>>(new Set());
+  const analyzedLeadSignaturesRef = useRef<Set<string>>(new Set());
+  const processedUserNoteIdsRef = useRef<Set<string>>(new Set());
+  const leadTaskRunningRef = useRef(false);
+  const notebookScribeRunningRef = useRef(false);
+  const saveCanonicalNotebookUpdateRef = useRef<((section: Parameters<typeof mergeCanonicalNotebook>[0]['section'], entry: string, nextStep?: string) => Promise<unknown>) | null>(null);
 
   // Init theme + create first tab on mount
   useEffect(() => {
@@ -215,6 +278,17 @@ const App: React.FC = () => {
   useEffect(() => {
     syncTerminalSessions(tabs);
   }, [currentEngagementId, syncTerminalSessions, tabs]);
+
+  useEffect(() => {
+    const openTabIds = new Set(tabs.map((tab) => tab.id));
+    setQueuedTerminalCommands((current) => {
+      const nextEntries = Object.entries(current).filter(([tabId]) => openTabIds.has(tabId));
+      if (nextEntries.length === Object.keys(current).length) {
+        return current;
+      }
+      return Object.fromEntries(nextEntries);
+    });
+  }, [tabs]);
 
   const previousEngagementIdRef = useRef<string | null>(null);
   useEffect(() => {
@@ -258,36 +332,166 @@ const App: React.FC = () => {
   }, []);
 
   // Handle browser page scan — sends page content to AI
+  const handleResetEngagementMemory = useCallback(async (engagementId: string) => {
+    await resetEngagementMemory(engagementId);
+
+    if (engagementId !== currentEngagementId) {
+      return;
+    }
+
+    resetContext();
+    clearMessages();
+    clearProactiveEvents();
+    setQueuedTerminalCommands({});
+    setDismissedObjectiveKey(null);
+    setAiInitialInput('');
+    setLeadThinkingLabel(null);
+    setSelectedNote(null);
+    setActiveNotebook(null, null);
+    setNotesSearchQuery('');
+    hintedTargetRef.current = null;
+    hintedPortsRef.current = '';
+    hintedServicesRef.current = '';
+    capturedPortFindingsRef.current.clear();
+    capturedServiceFindingsRef.current.clear();
+    analyzedLeadSignaturesRef.current.clear();
+    processedUserNoteIdsRef.current.clear();
+    leadTaskRunningRef.current = false;
+    notebookScribeRunningRef.current = false;
+
+    await Promise.all([
+      reloadNotes(),
+      reloadCommands(),
+      reloadFindings(),
+    ]);
+  }, [
+    clearMessages,
+    clearProactiveEvents,
+    currentEngagementId,
+    reloadCommands,
+    reloadFindings,
+    reloadNotes,
+    resetContext,
+    resetEngagementMemory,
+    setActiveNotebook,
+    setNotesSearchQuery,
+    setSelectedNote,
+  ]);
+
   const handlePageContent = useCallback(async (url: string, content: string) => {
     setShowAI(true);
     publishEvent({ type: 'browser_scanned', url, content });
-    const question = `Analyze the attack surface of this web page at ${url}. Identify forms, inputs, scripts, comments, and potential vulnerabilities. Here is the extracted page content:\n\n\`\`\`json\n${content}\n\`\`\``;
+    const question = `Analyze the attack surface and business logic of this web page at ${url}. Identify forms, inputs, scripts, comments, trust boundaries, role assumptions, workflow weaknesses, IDOR/state manipulation risks, and the most important next tests. Here is the extracted page content:\n\n\`\`\`json\n${content}\n\`\`\``;
     await sendMessage(question, context, notes);
   }, [publishEvent, sendMessage, context, notes]);
+
+  const openBrowser = useCallback((url?: string, mode?: 'dock' | 'focus') => {
+    setShowBrowser(true);
+    if (url) {
+      setBrowserInitialUrl(url);
+      setBrowserSessionUrl(url);
+    }
+    if (mode) {
+      setBrowserMode(mode);
+    }
+  }, []);
+
+  const closeBrowser = useCallback(() => {
+    setShowBrowser(false);
+    setBrowserInitialUrl('');
+  }, []);
+
+  const toggleBrowserMode = useCallback(() => {
+    if (!showBrowser) {
+      setShowBrowser(true);
+      return;
+    }
+    setBrowserMode((value) => value === 'dock' ? 'focus' : 'dock');
+  }, [showBrowser]);
 
   const handleQuickCommand = useCallback((cmd: string) => {
     if (activeTabId) {
       window.dispatchEvent(new CustomEvent('prowl:terminal-prefill', {
         detail: { tabId: activeTabId, data: cmd },
       }));
-      window.electronAPI.shell.write(activeTabId, cmd);
     }
   }, [activeTabId]);
 
-  const executeTerminalCommand = useCallback((cmd: string) => {
-    if (!activeTabId) {
-      return;
+  const isTerminalReady = useCallback((tabId: string) => {
+    const session = context.terminalSessions.find((entry) => entry.tabId === tabId);
+    if (!session) {
+      return false;
     }
 
-    const activeTab = tabs.find((tab) => tab.id === activeTabId);
+    const latestActivity = session.recentActivity[0];
+    if (!latestActivity) {
+      return true;
+    }
+
+    if (!latestActivity.output.trim()) {
+      return false;
+    }
+
+    return detectPromptReady(latestActivity.output, session.shellType);
+  }, [context.terminalSessions]);
+
+  const runCommandInTab = useCallback((tabId: string, cmd: string) => {
+    const activeTab = tabs.find((tab) => tab.id === tabId);
     const trimmedCommand = cmd.trim();
     if (!activeTab || !trimmedCommand) {
-      return;
+      return false;
     }
 
     recordTerminalCommand(activeTab.id, activeTab.shellType, activeTab.title, trimmedCommand);
-    window.electronAPI.shell.write(activeTabId, `${trimmedCommand}\r`);
-  }, [activeTabId, recordTerminalCommand, tabs]);
+    window.electronAPI.shell.write(tabId, `${trimmedCommand}\r`);
+    return true;
+  }, [recordTerminalCommand, tabs]);
+
+  const executeTerminalCommand = useCallback((cmd: string): 'ran' | 'queued' | 'ignored' => {
+    if (!activeTabId) {
+      return 'ignored';
+    }
+
+    const trimmedCommand = cmd.trim();
+    if (!trimmedCommand) {
+      return 'ignored';
+    }
+
+    if (isTerminalReady(activeTabId)) {
+      runCommandInTab(activeTabId, trimmedCommand);
+      return 'ran';
+    }
+
+    setQueuedTerminalCommands((current) => ({
+      ...current,
+      [activeTabId]: trimmedCommand,
+    }));
+    return 'queued';
+  }, [activeTabId, isTerminalReady, runCommandInTab]);
+
+  useEffect(() => {
+    const queuedEntries = Object.entries(queuedTerminalCommands);
+    if (queuedEntries.length === 0) {
+      return;
+    }
+
+    const readyEntries = queuedEntries.filter(([tabId]) => isTerminalReady(tabId));
+    if (readyEntries.length === 0) {
+      return;
+    }
+
+    setQueuedTerminalCommands((current) => {
+      const next = { ...current };
+      for (const [tabId] of readyEntries) {
+        delete next[tabId];
+      }
+      return next;
+    });
+
+    for (const [tabId, command] of readyEntries) {
+      runCommandInTab(tabId, command);
+    }
+  }, [isTerminalReady, queuedTerminalCommands, runCommandInTab]);
 
   const handleAIMessageAction = useCallback((action: AIMessageAction) => {
     if (action.id.startsWith('objective-')) {
@@ -296,15 +500,22 @@ const App: React.FC = () => {
 
     switch (action.type) {
       case 'run_command':
-        executeTerminalCommand(action.payload);
+        if (executeTerminalCommand(action.payload) === 'queued') {
+          appendMessage(
+            'assistant',
+            'The active terminal is still busy, so I queued that command and will run it when the prompt returns.',
+            'warning',
+            undefined,
+            false
+          );
+        }
         break;
       case 'prefill_ai':
         setShowAI(true);
         setAiInitialInput(action.payload);
         break;
       case 'open_browser':
-        setShowBrowser(true);
-        setBrowserInitialUrl(action.payload);
+        openBrowser(action.payload);
         break;
       case 'save_finding': {
         const targetLabel = context.primaryTarget || 'unknown-target';
@@ -327,27 +538,17 @@ const App: React.FC = () => {
       case 'append_notebook': {
         const entry = action.payload.trim();
         if (!entry) break;
-        const activeNote = activeNotebookId
-          ? notes.find(n => n.id === activeNotebookId)
-          : null;
-        if (activeNote) {
-          void saveNote({
-            id: activeNote.id,
-            title: activeNote.title,
-            content: `${activeNote.content}\n\n${entry}`,
-            source: activeNote.source,
-          });
-          setSelectedNote(activeNote.id);
+        const saveNotebookUpdate = saveCanonicalNotebookUpdateRef.current;
+        if (saveNotebookUpdate) {
+          void saveNotebookUpdate(
+            inferNotebookSectionFromText(entry),
+            entry,
+          );
         } else {
-          const title = context.primaryTarget
-            ? `${context.primaryTarget} notebook`
-            : 'Prowl Notebook';
-          void quickSaveFromAI(title, entry).then((saved) => {
-            if (saved) {
-              setActiveNotebook(saved.id, saved.title);
-              setSelectedNote(saved.id);
-            }
-          });
+          void quickSaveFromAI(
+            context.primaryTarget ? `${context.primaryTarget} notebook cue` : 'Prowl notebook cue',
+            entry
+          );
         }
         setShowNotes(true);
         break;
@@ -387,16 +588,13 @@ const App: React.FC = () => {
       }
     }
   }, [
-    activeNotebookId,
     context.primaryTarget,
     executeTerminalCommand,
-    notes,
+    appendMessage,
+    openBrowser,
     quickSaveFromAI,
     saveFinding,
-    saveNote,
-    setActiveNotebook,
     setManualMissionMode,
-    setSelectedNote,
   ]);
 
   useEffect(() => {
@@ -601,20 +799,6 @@ const App: React.FC = () => {
         break;
       }
       case 'note': {
-        // If an active notebook is set, append to it
-        if (activeNotebookId) {
-          const nb = notes.find(n => n.id === activeNotebookId);
-          if (nb) {
-            await saveNote({
-              id: nb.id,
-              title: nb.title,
-              content: nb.content + '\n' + action.text,
-              source: nb.source,
-            });
-            break;
-          }
-        }
-        // Otherwise create a standalone quick note
         const words = action.text.split(' ');
         const title = words.slice(0, 5).join(' ');
         await quickSaveFromTerminal(title, action.text);
@@ -627,7 +811,12 @@ const App: React.FC = () => {
           setActiveNotebook(existing.id, existing.title);
           setSelectedNote(existing.id);
         } else {
-          const nb = await quickSaveFromTerminal(action.name, `--- ${action.name} ---`);
+          const nb = await saveNote({
+            title: action.name,
+            content: buildCanonicalNotebookContent(action.name),
+            source: 'ai',
+            tags: ['notebook', 'ai-canonical'],
+          });
           if (nb) {
             setActiveNotebook(nb.id, nb.title);
             setSelectedNote(nb.id);
@@ -637,7 +826,12 @@ const App: React.FC = () => {
         break;
       }
       case 'notebook_new': {
-        const nb = await quickSaveFromTerminal(action.name, `--- ${action.name} ---`);
+        const nb = await saveNote({
+          title: action.name,
+          content: buildCanonicalNotebookContent(action.name),
+          source: 'ai',
+          tags: ['notebook', 'ai-canonical'],
+        });
         if (nb) {
           setActiveNotebook(nb.id, nb.title);
           setSelectedNote(nb.id);
@@ -650,12 +844,9 @@ const App: React.FC = () => {
         break;
       }
       case 'notes_add': {
-        // If active notebook, append there; else selected note or latest
-        const targetNote = activeNotebookId
-          ? notes.find(n => n.id === activeNotebookId)
-          : selectedNoteId
-            ? notes.find(n => n.id === selectedNoteId)
-            : notes[0];
+        const targetNote = selectedNoteId
+          ? notes.find(n => n.id === selectedNoteId && n.id !== activeNotebookId)
+          : notes.find((note) => note.id !== activeNotebookId);
         if (targetNote) {
           await saveNote({
             id: targetNote.id,
@@ -673,6 +864,10 @@ const App: React.FC = () => {
         const idx = action.index - 1;
         if (idx >= 0 && idx < notes.length) {
           const note = notes[idx];
+          if (note.id === activeNotebookId) {
+            await quickSaveFromTerminal(note.title, action.text);
+            break;
+          }
           await saveNote({
             id: note.id,
             title: note.title,
@@ -732,50 +927,184 @@ const App: React.FC = () => {
     activeNotebookId, setActiveNotebook, setSelectedNote, updateEngagementInStore
   ]);
 
-  // Auto-log to active notebook
-  const appendToNotebook = useCallback(async (entry: string) => {
-    if (!activeNotebookId) return;
-    const nb = notes.find(n => n.id === activeNotebookId);
-    if (nb) {
-      await saveNote({
-        id: nb.id,
-        title: nb.title,
-        content: nb.content + '\n' + entry,
-        source: nb.source,
-      });
-    }
-  }, [activeNotebookId, notes, saveNote]);
+  // ── Smart command completion analysis ───────────
+  // When a command finishes, decide if the AI should weigh in.
+  const commandCompleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleCommandComplete = useCallback((command: string, output: string) => {
+    if (!hasApiKey) return;
 
-  // Auto-log AI conversations to active notebook
-  const lastMessageCountRef = useRef(0);
+    // Clean ANSI escape codes for analysis
+    const cleanOutput = output.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '').trim();
+    const cmd = command.toLowerCase().trim();
+
+    // Skip trivial commands that don't need AI analysis
+    const trivialCommands = ['ls', 'cd', 'pwd', 'clear', 'whoami', 'id', 'exit', 'history', 'cat', 'echo', 'man', 'help'];
+    if (trivialCommands.some(t => cmd === t || cmd.startsWith(t + ' '))) return;
+
+    // Skip if output is too short to be meaningful (< 3 lines)
+    const lines = cleanOutput.split('\n').filter(Boolean);
+    if (lines.length < 3) return;
+
+    // Detect file-write commands where output went to a file
+    const fileOutputPatterns = [
+      /-o\s+(\S+)/, /-oN\s+(\S+)/, /-oA\s+(\S+)/, /-oX\s+(\S+)/, /-oG\s+(\S+)/,  // nmap
+      />\s*(\S+)/, />>\s*(\S+)/,  // shell redirect
+      /--output[= ]\s*(\S+)/, /-w\s+(\S+)/,  // various tools
+    ];
+
+    let outputFile: string | null = null;
+    for (const pattern of fileOutputPatterns) {
+      const match = command.match(pattern);
+      if (match) {
+        outputFile = match[1];
+        break;
+      }
+    }
+
+    // Debounce — don't flood the AI with rapid commands
+    if (commandCompleteTimerRef.current) {
+      clearTimeout(commandCompleteTimerRef.current);
+    }
+
+    commandCompleteTimerRef.current = setTimeout(() => {
+      let prompt: string;
+
+      if (outputFile && lines.length < 5) {
+        // Command wrote to a file and had minimal terminal output
+        prompt = `The command \`${command}\` just finished. It wrote output to \`${outputFile}\`. The terminal showed minimal output:\n\n\`\`\`\n${cleanOutput.slice(-500)}\n\`\`\`\n\nAnalyze what this command did, what the output file likely contains, and suggest the next step. If I should review the file first, tell me how.`;
+      } else {
+        // Command produced terminal output — analyze it
+        prompt = `The command \`${command}\` just completed. Here is the output:\n\n\`\`\`\n${cleanOutput.slice(-3000)}\n\`\`\`\n\nBriefly analyze the key findings and suggest what to do next.`;
+      }
+
+      // Use background task so it doesn't disrupt the chat flow
+      void runBackgroundTask(prompt, context, notes, {
+        variant: 'proactive',
+        logToNotebook: true,
+      });
+    }, 2000);  // 2 second debounce
+  }, [hasApiKey, context, notes, runBackgroundTask]);
+
+  const ensureCanonicalNotebook = useCallback(async () => {
+    const activeNotebook = activeNotebookId
+      ? notes.find((note) => note.id === activeNotebookId) ?? null
+      : null;
+    if (activeNotebook) {
+      return activeNotebook;
+    }
+
+    const targetTitle = context.primaryTarget || currentEngagement?.name || 'Prowl Notebook';
+    const existing = notes.find((note) => {
+      const title = note.title.toLowerCase();
+      const normalizedTarget = targetTitle.toLowerCase();
+      return title === normalizedTarget || title === `${normalizedTarget} notebook`;
+    }) ?? null;
+
+    if (existing) {
+      setActiveNotebook(existing.id, existing.title);
+      setSelectedNote(existing.id);
+      return existing;
+    }
+
+    const saved = await saveNote({
+      title: targetTitle,
+      content: buildCanonicalNotebookContent(targetTitle),
+      source: 'ai',
+      tags: ['notebook', 'ai-canonical', context.primaryTarget || 'general'],
+    });
+
+    setActiveNotebook(saved.id, saved.title);
+    setSelectedNote(saved.id);
+    return saved;
+  }, [
+    activeNotebookId,
+    context.primaryTarget,
+    currentEngagement?.name,
+    notes,
+    saveNote,
+    setActiveNotebook,
+    setSelectedNote,
+  ]);
+
+  const saveCanonicalNotebookUpdate = useCallback(async (
+    section: Parameters<typeof mergeCanonicalNotebook>[0]['section'],
+    entry: string,
+    nextStep?: string
+  ) => {
+    const notebook = await ensureCanonicalNotebook();
+    if (!notebook) {
+      return null;
+    }
+
+    const mergedContent = mergeCanonicalNotebook({
+      existingContent: notebook.content,
+      section,
+      entry,
+      nextStep,
+    });
+
+    const saved = await saveNote({
+      id: notebook.id,
+      title: notebook.title,
+      content: mergedContent,
+      source: 'ai',
+      tags: Array.from(new Set([...(notebook.tags || []), 'notebook', 'ai-canonical'])),
+    });
+
+    setActiveNotebook(saved.id, saved.title);
+    setSelectedNote(saved.id);
+    return saved;
+  }, [ensureCanonicalNotebook, saveNote, setActiveNotebook, setSelectedNote]);
+
   useEffect(() => {
-    if (!activeNotebookId || messages.length <= lastMessageCountRef.current) {
-      lastMessageCountRef.current = messages.length;
+    saveCanonicalNotebookUpdateRef.current = saveCanonicalNotebookUpdate;
+  }, [saveCanonicalNotebookUpdate]);
+
+  useEffect(() => {
+    if (!context.primaryTarget) {
       return;
     }
-    const newMessages = messages.slice(lastMessageCountRef.current);
-    lastMessageCountRef.current = messages.length;
-
-    newMessages.forEach(msg => {
-      if (msg.logToNotebook === false) {
-        return;
-      }
-      if (msg.role === 'user') {
-        appendToNotebook(`\n[ASK] ${msg.content}`);
-      } else if (msg.role === 'assistant' && (msg.variant ?? 'chat') === 'chat') {
-        const truncated = msg.content.length > 500
-          ? msg.content.slice(0, 500) + '...'
-          : msg.content;
-        appendToNotebook(`\n[AI] ${truncated}`);
-      }
-    });
-  }, [messages, activeNotebookId, appendToNotebook]);
+    if (activeNotebookId) {
+      return;
+    }
+    void ensureCanonicalNotebook();
+  }, [activeNotebookId, context.primaryTarget, ensureCanonicalNotebook]);
 
   const handleSaveToNotes = useCallback(async (content: string) => {
     const lines = content.split('\n');
     const title = lines[0].slice(0, 60) || 'AI Note';
     await quickSaveFromAI(title, content);
   }, [quickSaveFromAI]);
+
+  const recentCommandHistoryContext = useMemo(() => {
+    const normalizedTarget = context.primaryTarget.trim();
+    const relevantCommands = commands
+      .filter((record) => !normalizedTarget || !record.target || record.target === normalizedTarget)
+      .slice()
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+      .slice(0, 12);
+
+    if (relevantCommands.length === 0) {
+      return '(none)';
+    }
+
+    return relevantCommands
+      .map((record) => `- ${record.timestamp}: ${record.commandWithCurrentTarget || record.command}`)
+      .join('\n');
+  }, [commands, context.primaryTarget]);
+
+  const aiOperatorStateContext = useMemo(() => {
+    return [
+      '## Saved Target Workspace',
+      workspaceIntel.summaryText,
+      '',
+      '## Saved Command History',
+      recentCommandHistoryContext,
+      '',
+      'Use the saved artifacts above to avoid repeating scans that already have output unless there is a clear reason to rerun them.',
+      'Use the newest saved artifact to infer where the engagement last left off.',
+    ].join('\n');
+  }, [recentCommandHistoryContext, workspaceIntel.summaryText]);
 
   const backupNotebookTitle = useCallback((title: string) => {
     const stamp = new Date().toISOString().replace(/[:]/g, '-').replace(/\..+$/, '');
@@ -865,16 +1194,24 @@ const App: React.FC = () => {
     currentNotes: typeof notes
   ) => {
     const notebookIntent = resolveNotebookAIIntent(content, currentNotes, activeNotebookId);
+    const defaultLeadContext = [
+      '## Prowl Lead Mode',
+      'Default to one next command at a time unless the operator explicitly asks for a plan or full walkthrough.',
+      'Interpret the latest evidence briefly, then give the next single command.',
+      'If something failed, give the fix as the next command and keep the operator on track.',
+      '',
+      aiOperatorStateContext,
+    ].join('\n');
     const assistantMessage = await sendMessage(
       content,
       currentContext,
       currentNotes,
-      notebookIntent
-        ? {
-            supplementalContext: notebookIntent.supplementalContext,
-            logToNotebook: false,
-          }
-        : undefined
+      {
+        supplementalContext: notebookIntent
+          ? `${defaultLeadContext}\n\n${notebookIntent.supplementalContext}`
+          : defaultLeadContext,
+        logToNotebook: false,
+      }
     );
 
     if (!notebookIntent || !assistantMessage || assistantMessage.role !== 'assistant' || assistantMessage.variant === 'warning') {
@@ -884,10 +1221,294 @@ const App: React.FC = () => {
     await applyNotebookAIIntent(notebookIntent, assistantMessage.content);
   }, [
     activeNotebookId,
+    aiOperatorStateContext,
     applyNotebookAIIntent,
     notes,
     context,
     sendMessage,
+  ]);
+
+  const leadCheckpoints = useMemo(() => {
+    const checkpoints = context.terminalSessions.flatMap((session) => (
+      session.recentActivity.map((activity) => ({ session, activity }))
+    ));
+
+    checkpoints.sort((a, b) => (
+      new Date(b.activity.updatedAt).getTime() - new Date(a.activity.updatedAt).getTime()
+    ));
+
+    return checkpoints;
+  }, [context.terminalSessions]);
+
+  const latestCompletedLeadCheckpoint = useMemo(() => {
+    return leadCheckpoints.find(({ session, activity }) => (
+      activity.command.trim()
+      && activity.output.trim()
+      && detectPromptReady(activity.output, session.shellType)
+    )) ?? null;
+  }, [leadCheckpoints]);
+
+  const latestRunningLeadCheckpoint = useMemo(() => {
+    return leadCheckpoints.find(({ session, activity }) => (
+      activity.command.trim()
+      && !detectPromptReady(activity.output, session.shellType)
+    )) ?? null;
+  }, [leadCheckpoints]);
+
+  const leadBackgroundLabel = useMemo(() => {
+    if (leadThinkingLabel) {
+      return leadThinkingLabel;
+    }
+
+    if (!hasApiKey || !context.primaryTarget || !latestRunningLeadCheckpoint) {
+      return null;
+    }
+
+    const { activity } = latestRunningLeadCheckpoint;
+    return `Lead Mode watching ${activity.command.trim().slice(0, 64)}...`;
+  }, [context.primaryTarget, hasApiKey, latestRunningLeadCheckpoint, leadThinkingLabel]);
+
+  useEffect(() => {
+    if (!hasApiKey || !context.primaryTarget || !latestCompletedLeadCheckpoint) {
+      setLeadThinkingLabel(null);
+      return;
+    }
+
+    const { session, activity } = latestCompletedLeadCheckpoint;
+    const signature = `${activity.id}:${activity.updatedAt}`;
+    if (analyzedLeadSignaturesRef.current.has(signature)) {
+      setLeadThinkingLabel(null);
+      return;
+    }
+
+    if (leadTaskRunningRef.current) {
+      setLeadThinkingLabel(`Lead Mode analyzing ${activity.command.trim().slice(0, 64)}...`);
+      return;
+    }
+
+    setLeadThinkingLabel(`Lead Mode analyzing ${activity.command.trim().slice(0, 64)}...`);
+
+    const timer = window.setTimeout(async () => {
+      if (leadTaskRunningRef.current) {
+        return;
+      }
+
+      leadTaskRunningRef.current = true;
+      try {
+        const activeNotebook = activeNotebookId
+          ? notes.find((note) => note.id === activeNotebookId) ?? null
+          : null;
+
+        const leadUserPrompt = buildLeadUserPrompt({
+          context,
+          missionMode,
+          findings,
+          notes,
+          activeNotebookId,
+          workspacePath: currentWorkspacePath,
+          workspaceIntel: workspaceIntel.summaryText,
+          commandHistory: recentCommandHistoryContext,
+          session,
+          activity,
+          notebookContent: activeNotebook?.content,
+        });
+
+        const raw = await runBackgroundTask(
+          leadUserPrompt,
+          context,
+          notes,
+          {
+            systemPromptOverride: buildLeadSystemPrompt(),
+          }
+        );
+
+        if (!raw) {
+          return;
+        }
+
+        analyzedLeadSignaturesRef.current.add(signature);
+        let parsed = parseLeadAnalysis(raw);
+        if (!parsed) {
+          appendMessage(
+            'assistant',
+            `Lead Mode saw the latest output for \`${activity.command.trim()}\`, but I failed to structure the follow-up cleanly. Ask "what changed?" or "what next?" and I'll re-evaluate it.`,
+            'warning',
+            undefined,
+            false
+          );
+          return;
+        }
+
+        const commandComplexityIssue = parsed.nextCommand
+          ? getLeadCommandComplexityIssue(parsed.nextCommand)
+          : null;
+
+        if (commandComplexityIssue) {
+          const simplifiedRaw = await runBackgroundTask(
+            buildLeadSimplificationPrompt({
+              originalPrompt: leadUserPrompt,
+              rejectedCommand: parsed.nextCommand,
+              issue: commandComplexityIssue,
+            }),
+            context,
+            notes,
+            {
+              systemPromptOverride: buildLeadSystemPrompt(),
+            }
+          );
+
+          const simplified = simplifiedRaw ? parseLeadAnalysis(simplifiedRaw) : null;
+          if (simplified) {
+            parsed = simplified;
+          }
+        }
+
+        const finalCommandComplexityIssue = parsed.nextCommand
+          ? getLeadCommandComplexityIssue(parsed.nextCommand)
+          : null;
+
+        if (finalCommandComplexityIssue) {
+          appendMessage(
+            'assistant',
+            `Lead Mode held back a too-complex next step after \`${activity.command.trim()}\`. Ask "give me the simplest next command" and I'll keep it shorter and clearer.`,
+            'warning',
+            undefined,
+            false
+          );
+          parsed = {
+            ...parsed,
+            messageMarkdown: `Latest checkpoint captured for \`${activity.command.trim()}\`. Lead Mode is withholding an over-complicated next step and waiting for a simpler operator-friendly command.`,
+            nextCommand: '',
+          } as typeof parsed;
+        }
+
+        if (parsed.notebookEntry) {
+          await saveCanonicalNotebookUpdate(
+            parsed.notebookSection,
+            parsed.notebookEntry,
+            parsed.nextStep || undefined
+          );
+        }
+
+        if (!parsed.shouldRespond || !parsed.messageMarkdown.trim()) {
+          return;
+        }
+
+        appendMessage(
+          'assistant',
+          parsed.messageMarkdown,
+          'lead',
+          parsed.nextCommand
+            ? [{
+                id: `lead-next-${activity.id}`,
+                label: 'Run next command',
+                type: 'run_command',
+                payload: parsed.nextCommand,
+              }]
+            : undefined,
+          false
+        );
+        setShowAI(true);
+      } finally {
+        leadTaskRunningRef.current = false;
+        setLeadThinkingLabel(null);
+      }
+    }, 500);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    activeNotebookId,
+    appendMessage,
+    context,
+    currentWorkspacePath,
+    findings,
+    hasApiKey,
+    latestCompletedLeadCheckpoint,
+    missionMode,
+    notes,
+    recentCommandHistoryContext,
+    runBackgroundTask,
+    saveCanonicalNotebookUpdate,
+    workspaceIntel.summaryText,
+  ]);
+
+  const pendingRawUserNote = useMemo(() => {
+    return notes
+      .filter((note) => note.id !== activeNotebookId && note.source !== 'ai')
+      .slice()
+      .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))
+      .find((note) => !processedUserNoteIdsRef.current.has(`${note.id}:${note.updatedAt}`)) ?? null;
+  }, [activeNotebookId, notes]);
+
+  useEffect(() => {
+    if (!hasApiKey || !context.primaryTarget || !pendingRawUserNote) {
+      return;
+    }
+
+    const signature = `${pendingRawUserNote.id}:${pendingRawUserNote.updatedAt}`;
+    if (processedUserNoteIdsRef.current.has(signature) || notebookScribeRunningRef.current) {
+      return;
+    }
+
+    const timer = window.setTimeout(async () => {
+      if (notebookScribeRunningRef.current) {
+        return;
+      }
+
+      notebookScribeRunningRef.current = true;
+      try {
+        const activeNotebook = activeNotebookId
+          ? notes.find((note) => note.id === activeNotebookId) ?? null
+          : null;
+
+        const raw = await runBackgroundTask(
+          buildNotebookScribeUserPrompt({
+            note: pendingRawUserNote,
+            context,
+            missionMode,
+            findings,
+            notebookContent: activeNotebook?.content,
+          }),
+          context,
+          notes,
+          {
+            systemPromptOverride: buildNotebookScribeSystemPrompt(),
+          }
+        );
+
+        if (!raw) {
+          return;
+        }
+
+        processedUserNoteIdsRef.current.add(signature);
+        const parsed = parseNotebookScribeResult(raw);
+        if (!parsed || !parsed.notebookEntry) {
+          return;
+        }
+
+        await saveCanonicalNotebookUpdate(
+          parsed.notebookSection,
+          parsed.notebookEntry,
+          parsed.nextStep || undefined
+        );
+      } finally {
+        notebookScribeRunningRef.current = false;
+      }
+    }, 900);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    activeNotebookId,
+    context,
+    findings,
+    hasApiKey,
+    pendingRawUserNote,
+    missionMode,
+    notes,
+    runBackgroundTask,
+    saveCanonicalNotebookUpdate,
   ]);
 
   const handleSearchChange = useCallback((query: string) => {
@@ -1393,8 +2014,17 @@ const App: React.FC = () => {
         label: 'Open browser',
         description: 'Show the embedded browser panel.',
         group: 'Navigate',
-        onSelect: () => setShowBrowser(true),
+        onSelect: () => openBrowser(),
       },
+      ...(showBrowser ? [{
+        id: 'palette-browser-mode',
+        label: browserMode === 'focus' ? 'Dock browser into workspace' : 'Pop browser into focus view',
+        description: browserMode === 'focus'
+          ? 'Return the browser to the side-by-side workspace layout.'
+          : 'Give the browser the full terminal workspace while keeping AI scanning intact.',
+        group: 'Navigate',
+        onSelect: () => toggleBrowserMode(),
+      }] : []),
       {
         id: 'palette-findings',
         label: 'Open findings',
@@ -1524,17 +2154,21 @@ const App: React.FC = () => {
   }, [
     activeTabId,
     addTab,
+    browserMode,
     clearManualMissionMode,
     context.primaryTarget,
     currentWorkspacePath,
     engagements,
     executeTerminalCommand,
     layout,
+    openBrowser,
     selectEngagement,
     setActiveTab,
     setManualMissionMode,
     setSecondaryTab,
+    showBrowser,
     tabs,
+    toggleBrowserMode,
     toggleSplit,
   ]);
 
@@ -1544,6 +2178,9 @@ const App: React.FC = () => {
       : (activeTabId ? [activeTabId] : []);
     return Array.from(new Set(paneIds));
   }, [activeTabId, layout, secondaryTabId]);
+
+  const browserDocked = showBrowser && browserMode === 'dock';
+  const browserFocused = showBrowser && browserMode === 'focus';
 
   return (
     <div className="app-layout">
@@ -1562,15 +2199,20 @@ const App: React.FC = () => {
           if (!showAI && !hasApiKey) openModal();
           setShowAI(v => !v);
         }}
-        onToggleBrowser={() => setShowBrowser(v => !v)}
+        onToggleBrowser={() => {
+          if (showBrowser) {
+            closeBrowser();
+          } else {
+            openBrowser(browserSessionUrl || undefined);
+          }
+        }}
         onToggleSplit={() => toggleSplit()}
         onOpenEngagements={() => setShowEngagementPanel(true)}
         onOpenMissionModes={() => setShowMissionModePanel(true)}
         onOpenCommandPalette={() => setShowCommandPalette(true)}
         onRunCommand={executeTerminalCommand}
         onOpenFindingBrowser={(url) => {
-          setShowBrowser(true);
-          setBrowserInitialUrl(url);
+          openBrowser(url);
         }}
         onSaveFindingNote={(content) => {
           void handleSaveToNotes(content);
@@ -1582,8 +2224,7 @@ const App: React.FC = () => {
           setAiInitialInput(prompt);
         }}
         onOpenTimelineBrowser={(url) => {
-          setShowBrowser(true);
-          setBrowserInitialUrl(url);
+          openBrowser(url);
         }}
         onOpenTimelineNote={(noteId) => {
           setShowNotes(true);
@@ -1627,7 +2268,7 @@ const App: React.FC = () => {
               </select>
             </div>
           )}
-          <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minWidth: 0 }}>
+          <div className={`terminal-browser-row ${browserFocused ? 'browser-focus-active' : ''}`}>
             <div
               style={{
                 flex: 1,
@@ -1656,26 +2297,29 @@ const App: React.FC = () => {
                     tabId={tab.id}
                     isActive={tab.id === activeTabId}
                     onKeywordCommand={handleKeywordCommand}
-                    onCommandLogged={(cmd) => appendToNotebook(`\n[CMD] ${cmd}`)}
+                    onCommandComplete={handleCommandComplete}
                   />
                 </div>
               ))}
             </div>
+            {browserDocked && (
+              <div className="resize-handle" onMouseDown={handleResizeMouseDown('browser')} />
+            )}
             {showBrowser && (
               <div
-                style={{
-                  flex: 1,
-                  borderLeft: '1px solid var(--border)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  minWidth: 0,
-                }}
+                className={`browser-shell ${browserDocked ? 'docked' : 'focused'}`}
+                style={browserDocked ? { width: browserWidth, minWidth: browserWidth } : undefined}
               >
                 <BrowserPanel
                   socksPort={socksPort}
                   onPageContent={handlePageContent}
                   initialUrl={browserInitialUrl}
                   onInitialUrlHandled={() => setBrowserInitialUrl('')}
+                  restoredUrl={browserSessionUrl}
+                  onCurrentUrlChange={setBrowserSessionUrl}
+                  mode={browserMode}
+                  onToggleMode={toggleBrowserMode}
+                  onClose={closeBrowser}
                 />
               </div>
             )}
@@ -1703,6 +2347,7 @@ const App: React.FC = () => {
           <AIPanel
             messages={messages}
             isThinking={isThinking}
+            backgroundThinking={leadBackgroundLabel ? { active: true, label: leadBackgroundLabel } : undefined}
             hasApiKey={hasApiKey}
             onSendMessage={handleAISendMessage}
             onSaveToNotes={handleSaveToNotes}
@@ -1726,6 +2371,7 @@ const App: React.FC = () => {
         findingCount={findings.length}
         isAIActive={hasApiKey}
         isThinking={isThinking}
+        backgroundThinkingLabel={leadBackgroundLabel}
       />
 
       {showApiKeyModal && (
@@ -1758,6 +2404,9 @@ const App: React.FC = () => {
           }}
           onDelete={async (id) => {
             await deleteEngagement(id);
+          }}
+          onResetMemory={async (id) => {
+            await handleResetEngagementMemory(id);
           }}
         />
       )}

@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useEffect, useRef } from 'react';
+import React, { useCallback, useState, useEffect, useRef, useMemo } from 'react';
 import { useTerminalStore } from '../store/terminalStore';
 import ThemePicker from './ThemePicker';
 import ContainerPanel from './ContainerPanel';
@@ -66,6 +66,7 @@ const TitleBar: React.FC<TitleBarProps> = ({
 }) => {
   const { tabs, activeTabId, addTab, removeTab, setActiveTab } = useTerminalStore();
   const allNotes = useNotesStore(s => s.notes);
+  const activeNotebookId = useNotesStore(s => s.activeNotebookId);
   const findings = useFindingsStore(s => s.findings);
   const [showThemePicker, setShowThemePicker] = useState(false);
   const [showContainerPanel, setShowContainerPanel] = useState(false);
@@ -78,6 +79,14 @@ const TitleBar: React.FC<TitleBarProps> = ({
   const [containerStatus, setContainerStatus] = useState<ContainerStatus>('not_installed');
   const [vpnStatus, setVpnStatus] = useState<VPNStatus>({ connected: false });
   const newTabMenuRef = useRef<HTMLDivElement>(null);
+
+  const notebookNote = useMemo(() => {
+    if (activeNotebookId) {
+      return allNotes.find((note) => note.id === activeNotebookId) ?? null;
+    }
+
+    return allNotes.find((note) => note.tags.includes('ai-canonical')) ?? null;
+  }, [activeNotebookId, allNotes]);
 
   // Poll container & VPN status
   useEffect(() => {
@@ -162,7 +171,7 @@ const TitleBar: React.FC<TitleBarProps> = ({
         </div>
 
         <div className="titlebar-brand">
-          <img src={new URL('../assets/logo.png', import.meta.url).href} alt="PROWL" className="brand-logo" />
+          <span className="brand-mark">&lt;Pr&gt;</span>
           <span className="brand-text">PROWL</span>
         </div>
 
@@ -336,8 +345,8 @@ const TitleBar: React.FC<TitleBarProps> = ({
       )}
       {showNotebook && (
         <NotebookViewer
-          notes={allNotes}
-          notebookTitle={currentEngagementName ? `${currentEngagementName} Notebook` : 'Prowl Field Notebook'}
+          notebook={notebookNote}
+          notebookTitle={notebookNote?.title || (currentEngagementName ? `${currentEngagementName} Notebook` : 'Prowl Field Notebook')}
           onClose={() => setShowNotebook(false)}
         />
       )}

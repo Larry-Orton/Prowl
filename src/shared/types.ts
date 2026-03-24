@@ -99,7 +99,7 @@ export interface ActiveContext {
 export interface AIMessage {
   id: string;
   role: 'user' | 'assistant';
-  variant?: 'chat' | 'proactive' | 'warning' | 'suggestion';
+  variant?: 'chat' | 'proactive' | 'warning' | 'suggestion' | 'lead';
   content: string;
   timestamp: string;
   actions?: AIMessageAction[];
@@ -206,6 +206,7 @@ export interface ElectronEngagementsAPI {
   delete: (id: string) => Promise<void>;
   getCurrent: () => Promise<string>;
   setCurrent: (id: string) => Promise<string>;
+  resetMemory: (id: string) => Promise<Engagement>;
 }
 
 export interface ElectronAIAPI {

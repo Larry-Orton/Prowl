@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     delete: (id: string) => ipcRenderer.invoke('engagements:delete', id),
     getCurrent: () => ipcRenderer.invoke('engagements:getCurrent'),
     setCurrent: (id: string) => ipcRenderer.invoke('engagements:setCurrent', id),
+    resetMemory: (id: string) => ipcRenderer.invoke('engagements:resetMemory', id),
   },
   notes: {
     save: (note: object) => ipcRenderer.invoke('notes:save', note),

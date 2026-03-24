@@ -15,6 +15,31 @@ interface UseTerminalOptions {
   onKeywordCommand: (action: KeywordAction) => void;
   onCommandRun: (cmd: string) => void;
   onOutput: (data: string) => void;
+  onCommandComplete?: (command: string, output: string) => void;
+}
+
+function detectPromptReturn(output: string, shellType: 'local' | 'kali'): boolean {
+  const lines = output
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .slice(-4);
+
+  if (lines.length === 0) {
+    return false;
+  }
+
+  const recent = lines.join('\n');
+
+  if (shellType === 'local' && /(?:^|\n)PS [^\n]*>\s*$/m.test(recent)) {
+    return true;
+  }
+
+  return (
+    /(?:^|\n).*└─[#>$]\s*$/m.test(recent)
+    || /(?:^|\n)[^\n]*[#$>]\s*$/m.test(recent)
+  );
 }
 
 // ── Hook ──────────────────────────────────────────
@@ -27,6 +52,7 @@ export function useTerminal({
   onKeywordCommand,
   onCommandRun: _onCommandRun,
   onOutput,
+  onCommandComplete,
 }: UseTerminalOptions) {
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -34,6 +60,7 @@ export function useTerminal({
   const outputBufferRef = useRef('');
   const outputTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputBufferRef = useRef('');
+  const lastCommandRef = useRef('');
   const inputEscapeStateRef = useRef<'none' | 'esc' | 'csi' | 'ss3'>('none');
   const forwardedEscapeStateRef = useRef<'none' | 'esc' | 'csi' | 'ss3'>('none');
   const forwardedEscapeBufferRef = useRef('');
@@ -101,6 +128,7 @@ export function useTerminal({
         const trimmed = buf.trim();
         if (trimmed && !parseKeywordCommand(buf)) {
           _onCommandRun(trimmed);
+          lastCommandRef.current = trimmed;
         }
         buf = '';
       } else if (ch === '\x1b') {
@@ -181,6 +209,20 @@ export function useTerminal({
     return sanitized;
   }, []);
 
+  const prefillTerminalInput = useCallback((text: string) => {
+    const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    if (!normalized) {
+      return;
+    }
+
+    // Use bracketed paste so readline/zsh treat long commands as one literal paste
+    // instead of a burst of keystrokes that can redraw poorly.
+    const bracketedPaste = `\x1b[200~${normalized}\x1b[201~`;
+    trackInputData(normalized);
+    window.electronAPI.shell.write(tabId, bracketedPaste);
+    termRef.current?.focus();
+  }, [tabId, trackInputData]);
+
   useEffect(() => {
     if (!containerRef.current) return;
     inputBufferRef.current = '';
@@ -253,6 +295,31 @@ export function useTerminal({
 
     requestAnimationFrame(openWhenReady);
 
+    const flushOutputBuffer = () => {
+      const buf = outputBufferRef.current;
+      if (!buf) {
+        return;
+      }
+
+      parseAndUpdateFromOutput(buf);
+      recordTerminalOutput(tabId, shellType, terminalTitle, buf);
+      setLastCommandOutput(buf);
+
+      // Notify App that a command finished with its output
+      const cmd = lastCommandRef.current;
+      if (cmd && onCommandComplete) {
+        onCommandComplete(cmd, buf);
+        lastCommandRef.current = '';
+      }
+
+      outputBufferRef.current = '';
+
+      if (outputTimerRef.current) {
+        clearTimeout(outputTimerRef.current);
+        outputTimerRef.current = null;
+      }
+    };
+
     // ── PTY Data Handler ──────────────────────────
     const unsubData = window.electronAPI.shell.onData((id: string, data: string) => {
       if (id !== tabId) return;
@@ -264,15 +331,13 @@ export function useTerminal({
       if (outputTimerRef.current) {
         clearTimeout(outputTimerRef.current);
       }
-      outputTimerRef.current = setTimeout(() => {
-        const buf = outputBufferRef.current;
-        if (buf) {
-          parseAndUpdateFromOutput(buf);
-          recordTerminalOutput(tabId, shellType, terminalTitle, buf);
-          setLastCommandOutput(buf);
-          outputBufferRef.current = '';
-        }
-      }, 500);
+
+      if (detectPromptReturn(outputBufferRef.current, shellType)) {
+        flushOutputBuffer();
+        return;
+      }
+
+      outputTimerRef.current = setTimeout(flushOutputBuffer, 500);
     });
 
     if (typeof unsubData === 'function') {
@@ -296,10 +361,11 @@ export function useTerminal({
       // Ctrl+V / Ctrl+Shift+V: paste
       if ((e.ctrlKey && !e.shiftKey && e.key === 'v') ||
           (e.ctrlKey && e.shiftKey && e.key === 'V')) {
+        e.preventDefault();
+        e.stopPropagation();
         navigator.clipboard.readText().then(text => {
           if (text) {
-            trackInputData(text);
-            window.electronAPI.shell.write(tabId, text);
+            prefillTerminalInput(text);
           }
         });
         return false;
@@ -332,8 +398,7 @@ export function useTerminal({
       } else {
         navigator.clipboard.readText().then(text => {
           if (text) {
-            trackInputData(text);
-            window.electronAPI.shell.write(tabId, text);
+            prefillTerminalInput(text);
           }
         });
       }
@@ -362,7 +427,7 @@ export function useTerminal({
       if (!detail || detail.tabId !== tabId || typeof detail.data !== 'string') {
         return;
       }
-      trackInputData(detail.data);
+      prefillTerminalInput(detail.data);
     };
 
     window.addEventListener('prowl:terminal-prefill', handlePrefillEvent as EventListener);
@@ -403,6 +468,7 @@ export function useTerminal({
     // ── Cleanup ───────────────────────────────────
     return () => {
       cancelled = true;
+      flushOutputBuffer();
       if (outputTimerRef.current) {
         clearTimeout(outputTimerRef.current);
       }

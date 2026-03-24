@@ -5,6 +5,10 @@ import { useMissionModeStore } from '../store/missionModeStore';
 interface AIPanelProps {
   messages: AIMessage[];
   isThinking: boolean;
+  backgroundThinking?: {
+    active: boolean;
+    label: string;
+  };
   hasApiKey: boolean;
   onSendMessage: (content: string, context: ActiveContext, notes: Note[]) => void;
   onSaveToNotes: (content: string) => void;
@@ -49,7 +53,7 @@ function renderMessageContent(content: string, onRunCommand?: (cmd: string) => v
                 onClick={() => onRunCommand(code)}
                 title="Paste to terminal"
               >
-                Run
+                Paste
               </button>
             )}
           </div>
@@ -111,6 +115,8 @@ function getMessageMeta(msg: AIMessage): { label: string; bubbleClass: string } 
       return { label: 'SUGGESTION', bubbleClass: 'suggestion' };
     case 'proactive':
       return { label: 'PROWL NOTICED', bubbleClass: 'proactive' };
+    case 'lead':
+      return { label: 'LEAD MODE', bubbleClass: 'lead' };
     default:
       return { label: 'PROWL AI', bubbleClass: 'assistant' };
   }
@@ -119,6 +125,7 @@ function getMessageMeta(msg: AIMessage): { label: string; bubbleClass: string } 
 const AIPanel: React.FC<AIPanelProps> = ({
   messages,
   isThinking,
+  backgroundThinking,
   hasApiKey,
   onSendMessage,
   onSaveToNotes,
@@ -148,7 +155,7 @@ const AIPanel: React.FC<AIPanelProps> = ({
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages, isThinking]);
+  }, [backgroundThinking?.active, isThinking, messages]);
 
   const handleSend = useCallback(() => {
     const text = inputValue.trim();
@@ -185,9 +192,9 @@ const AIPanel: React.FC<AIPanelProps> = ({
             {missionMode.label}
           </span>
         </div>
-        <div className={`ai-status-indicator ${isThinking ? 'thinking' : hasApiKey ? 'ready' : 'offline'}`}>
+        <div className={`ai-status-indicator ${(isThinking || backgroundThinking?.active) ? 'thinking' : hasApiKey ? 'ready' : 'offline'}`}>
           <span className="status-pulse" />
-          {isThinking ? 'thinking' : hasApiKey ? 'live' : 'offline'}
+          {isThinking ? 'thinking' : backgroundThinking?.active ? 'analyzing' : hasApiKey ? 'live' : 'offline'}
         </div>
       </div>
 
@@ -249,7 +256,7 @@ const AIPanel: React.FC<AIPanelProps> = ({
               <div className="ai-empty-glyph">+</div>
               <div className="ai-empty-text">Ask me anything about your engagement.</div>
               <div className="ai-empty-hint">
-                I can now see tracked commands and output across your open terminals.
+                I can see tracked commands and output across your open terminals and lead one step at a time.
               </div>
               {!hasApiKey && (
                 <button className="btn-accent" onClick={onOpenApiModal} style={{ marginTop: 12 }}>
@@ -295,6 +302,21 @@ const AIPanel: React.FC<AIPanelProps> = ({
               </div>
             );
           })}
+
+          {backgroundThinking?.active && !isThinking && (
+            <div className="ai-msg-row assistant">
+              <div className="ai-msg lead">
+                <div className="ai-msg-label">
+                  <span className="ai-msg-dot thinking" />
+                  LEAD MODE
+                </div>
+                <div className="ai-thinking-copy">{backgroundThinking.label}</div>
+                <div className="ai-thinking-bar">
+                  <div className="thinking-wave" />
+                </div>
+              </div>
+            </div>
+          )}
 
           {isThinking && (
             <div className="ai-msg-row assistant">

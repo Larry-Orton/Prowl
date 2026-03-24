@@ -147,7 +147,7 @@ const NotesPanel: React.FC<NotesPanelProps> = ({
               ×
             </button>
           </div>
-          <div className="notebook-hint">All notes go here</div>
+          <div className="notebook-hint">AI maintains this notebook. Your raw notes stay separate.</div>
         </div>
       )}
 

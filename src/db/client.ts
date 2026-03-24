@@ -471,6 +471,33 @@ export function deleteEngagement(id: string): void {
   writeData(ensureDataShape(data));
 }
 
+export function resetEngagementMemory(id: string): Engagement {
+  const data = readData();
+  const idx = data.engagements.findIndex((engagement) => engagement.id === id);
+  if (idx === -1) {
+    const fallback = data.engagements.find((engagement) => engagement.id === DEFAULT_ENGAGEMENT_ID)
+      ?? createDefaultEngagementRow();
+    return rowToEngagement(fallback);
+  }
+
+  const existing = data.engagements[idx];
+  const now = new Date().toISOString();
+  const updated: EngagementRow = {
+    ...existing,
+    primaryTarget: '',
+    workspacePath: buildWorkspacePath('', existing.id),
+    updatedAt: now,
+  };
+
+  data.notes = data.notes.filter((note) => normalizeEngagementId(note.engagementId) !== id);
+  data.commands = data.commands.filter((command) => normalizeEngagementId(command.engagementId) !== id);
+  data.findings = data.findings.filter((finding) => normalizeEngagementId(finding.engagementId) !== id);
+  data.engagements[idx] = updated;
+
+  writeData(ensureDataShape(data));
+  return rowToEngagement(updated);
+}
+
 export function getCurrentEngagementId(): string {
   const data = readData();
   return resolveEngagementId(data);

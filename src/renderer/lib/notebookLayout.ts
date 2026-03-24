@@ -1,14 +1,17 @@
 import { Note } from '@shared/types';
 
-export const NOTEBOOK_LINES_PER_PAGE = 15;
+export const NOTEBOOK_LINES_PER_PAGE = 18;
 
 export type NotebookLineTone =
-  | 'noteTitle'
-  | 'noteMeta'
+  | 'meta'
   | 'section'
+  | 'checkpoint'
   | 'paragraph'
   | 'bullet'
   | 'command'
+  | 'finding'
+  | 'guidance'
+  | 'sideNote'
   | 'empty';
 
 export interface NotebookDisplayLine {
@@ -28,14 +31,6 @@ export interface NotebookPage {
   lines: NotebookDisplayLine[];
 }
 
-interface NotebookSections {
-  summary: string[];
-  observations: string[];
-  commands: string[];
-  questions: string[];
-  aiGuidance: string[];
-}
-
 function formatDateLabel(iso: string): string {
   const date = new Date(iso);
   return date.toLocaleDateString('en-US', {
@@ -43,17 +38,6 @@ function formatDateLabel(iso: string): string {
     day: 'numeric',
     year: 'numeric',
   });
-}
-
-function toSourceLabel(source: Note['source']): string {
-  switch (source) {
-    case 'ai':
-      return 'AI';
-    case 'terminal':
-      return 'TERMINAL';
-    default:
-      return 'MANUAL';
-  }
 }
 
 function wrapText(text: string, width: number, firstPrefix = '', continuationPrefix = ''): string[] {
@@ -65,25 +49,18 @@ function wrapText(text: string, width: number, firstPrefix = '', continuationPre
   const words = normalized.split(' ');
   const lines: string[] = [];
   let current = firstPrefix;
-  let currentWidth = firstPrefix.length;
-  const continuation = continuationPrefix || firstPrefix;
+  let prefix = firstPrefix;
 
   for (const word of words) {
-    const separator = currentWidth > (lines.length === 0 ? firstPrefix.length : continuation.length) ? ' ' : '';
-    const prefixWidth = lines.length === 0 ? firstPrefix.length : continuation.length;
-    const next = current + separator + word;
+    const separator = current.trim() === prefix.trim() ? '' : ' ';
+    const candidate = `${current}${separator}${word}`;
 
-    if (currentWidth > prefixWidth && next.length > width) {
+    if (candidate.length > width && current.trim() !== prefix.trim()) {
       lines.push(current);
-      current = continuation + word;
-      currentWidth = current.length;
-    } else if (currentWidth === prefixWidth && (continuation + word).length > width && word.length > width - prefixWidth) {
-      lines.push(continuation + word);
-      current = '';
-      currentWidth = 0;
+      prefix = continuationPrefix || firstPrefix;
+      current = `${prefix}${word}`;
     } else {
-      current = next;
-      currentWidth = current.length;
+      current = candidate;
     }
   }
 
@@ -94,26 +71,154 @@ function wrapText(text: string, width: number, firstPrefix = '', continuationPre
   return lines;
 }
 
-function collapseParagraph(lines: string[]): string {
-  return lines.join(' ').replace(/\s+/g, ' ').trim();
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .trim();
 }
 
-function parseNoteSections(note: Note): NotebookSections {
-  const sections: NotebookSections = {
-    summary: [],
-    observations: [],
-    commands: [],
-    questions: [],
-    aiGuidance: [],
-  };
+function pushWrappedText(
+  target: NotebookDisplayLine[],
+  text: string,
+  tone: NotebookLineTone,
+  source: Note['source'],
+  createdAt: string,
+  options?: {
+    width?: number;
+    firstPrefix?: string;
+    continuationPrefix?: string;
+    stickyCount?: number;
+  }
+) {
+  const wrapped = wrapText(
+    stripMarkdown(text),
+    options?.width ?? 58,
+    options?.firstPrefix ?? '',
+    options?.continuationPrefix ?? options?.firstPrefix ?? ''
+  );
 
-  const rawLines = note.content.replace(/\r/g, '').split('\n');
+  wrapped.forEach((line, index) => {
+    target.push({
+      id: `${createdAt}-${tone}-${target.length}-${index}`,
+      text: line,
+      tone,
+      source,
+      createdAt,
+      stickyCount: index === 0 ? options?.stickyCount : undefined,
+    });
+  });
+}
+
+function pushBlank(target: NotebookDisplayLine[], source: Note['source'], createdAt: string) {
+  if (target.length === 0 || target[target.length - 1].tone === 'empty') {
+    return;
+  }
+
+  target.push({
+    id: `${createdAt}-blank-${target.length}`,
+    text: '',
+    tone: 'empty',
+    source,
+    createdAt,
+  });
+}
+
+function classifyBullet(text: string): {
+  tone: NotebookLineTone;
+  width: number;
+  firstPrefix: string;
+  continuationPrefix: string;
+  normalized: string;
+} {
+  const cleaned = stripMarkdown(text);
+  const labeledMatch = cleaned.match(/^([A-Za-z][A-Za-z ]{1,24}):\s*(.+)$/);
+  const label = labeledMatch?.[1].trim().toLowerCase() ?? '';
+  const body = labeledMatch?.[2].trim() ?? cleaned;
+
+  if (/^(command|command run|ran|executed|payload|request)$/.test(label)) {
+    return {
+      tone: 'command',
+      width: 54,
+      firstPrefix: '$ ',
+      continuationPrefix: '  ',
+      normalized: body,
+    };
+  }
+
+  if (/^(finding|result|evidence|output|observation|discovery|service|services|port|ports|credential|credentials|flag|flags)$/.test(label)) {
+    return {
+      tone: 'finding',
+      width: 58,
+      firstPrefix: '- ',
+      continuationPrefix: '  ',
+      normalized: body,
+    };
+  }
+
+  if (/^(guidance|why it matters|meaning|interpretation|assessment|next step|recommendation)$/.test(label)) {
+    return {
+      tone: 'guidance',
+      width: 58,
+      firstPrefix: '> ',
+      continuationPrefix: '  ',
+      normalized: body,
+    };
+  }
+
+  if (/^(side note|tip|caution|watch for|operator note|note)$/.test(label)) {
+    return {
+      tone: 'sideNote',
+      width: 56,
+      firstPrefix: '! ',
+      continuationPrefix: '  ',
+      normalized: body,
+    };
+  }
+
+  if (/^(question|questions|todo)$/.test(label)) {
+    return {
+      tone: 'bullet',
+      width: 57,
+      firstPrefix: '? ',
+      continuationPrefix: '  ',
+      normalized: body,
+    };
+  }
+
+  if (/^(command|curl|wget|ffuf|gobuster|feroxbuster|nmap|whatweb|nikto|enum4linux|rpcclient|smbclient|crackmapexec)\b/i.test(cleaned)) {
+    return {
+      tone: 'command',
+      width: 54,
+      firstPrefix: '$ ',
+      continuationPrefix: '  ',
+      normalized: cleaned,
+    };
+  }
+
+  return {
+    tone: 'bullet',
+    width: 58,
+    firstPrefix: '- ',
+    continuationPrefix: '  ',
+    normalized: cleaned,
+  };
+}
+
+function buildNotebookLines(notebook: Note): NotebookDisplayLine[] {
+  const rawLines = notebook.content.replace(/\r/g, '').split('\n');
+  const lines: NotebookDisplayLine[] = [];
   const paragraphBuffer: string[] = [];
 
   const flushParagraph = () => {
-    const paragraph = collapseParagraph(paragraphBuffer);
-    if (paragraph) {
-      sections.summary.push(paragraph);
+    const text = stripMarkdown(paragraphBuffer.join(' '));
+    if (text) {
+      pushWrappedText(lines, text, 'paragraph', notebook.source, notebook.updatedAt, {
+        width: 58,
+      });
+      pushBlank(lines, notebook.source, notebook.updatedAt);
     }
     paragraphBuffer.length = 0;
   };
@@ -126,48 +231,81 @@ function parseNoteSections(note: Note): NotebookSections {
       continue;
     }
 
-    const bannerMatch = trimmed.match(/^---\s*(.+?)\s*---$/);
-    if (bannerMatch) {
+    const targetMatch = trimmed.match(/^Target:\s*(.+)$/i);
+    if (targetMatch) {
       flushParagraph();
-      const bannerText = bannerMatch[1].trim();
-      if (bannerText.toLowerCase() !== note.title.trim().toLowerCase()) {
-        sections.observations.push(bannerText);
-      }
+      pushWrappedText(lines, `Target: ${targetMatch[1].trim()}`, 'meta', notebook.source, notebook.updatedAt, {
+        width: 60,
+        stickyCount: 2,
+      });
+      pushBlank(lines, notebook.source, notebook.updatedAt);
       continue;
     }
 
-    const commandMatch = trimmed.match(/^\[CMD\]\s*(.+)$/i);
-    if (commandMatch) {
+    const sectionMatch = trimmed.match(/^##\s+(.+)$/);
+    if (sectionMatch) {
       flushParagraph();
-      sections.commands.push(commandMatch[1].trim());
+      pushBlank(lines, notebook.source, notebook.updatedAt);
+      pushWrappedText(lines, sectionMatch[1].trim(), 'section', notebook.source, notebook.updatedAt, {
+        width: 58,
+        stickyCount: 3,
+      });
       continue;
     }
 
-    const questionMatch = trimmed.match(/^\[ASK\]\s*(.+)$/i);
-    if (questionMatch) {
+    const checkpointMatch = trimmed.match(/^###\s+(.+)$/);
+    if (checkpointMatch) {
       flushParagraph();
-      sections.questions.push(questionMatch[1].trim());
-      continue;
-    }
-
-    const aiMatch = trimmed.match(/^\[AI\]\s*(.+)$/i);
-    if (aiMatch) {
-      flushParagraph();
-      sections.aiGuidance.push(aiMatch[1].trim());
+      pushBlank(lines, notebook.source, notebook.updatedAt);
+      pushWrappedText(lines, checkpointMatch[1].trim(), 'checkpoint', notebook.source, notebook.updatedAt, {
+        width: 58,
+        stickyCount: 2,
+      });
       continue;
     }
 
     const bulletMatch = trimmed.match(/^[-*]\s+(.+)$/);
     if (bulletMatch) {
       flushParagraph();
-      sections.observations.push(bulletMatch[1].trim());
+      const classified = classifyBullet(bulletMatch[1].trim());
+      pushWrappedText(lines, classified.normalized, classified.tone, notebook.source, notebook.updatedAt, {
+        width: classified.width,
+        firstPrefix: classified.firstPrefix,
+        continuationPrefix: classified.continuationPrefix,
+      });
       continue;
     }
 
-    const numberedMatch = trimmed.match(/^\d+\.\s+(.+)$/);
+    const numberedMatch = trimmed.match(/^(\d+)\.\s+(.+)$/);
     if (numberedMatch) {
       flushParagraph();
-      sections.observations.push(numberedMatch[1].trim());
+      const classified = classifyBullet(numberedMatch[2].trim());
+      pushWrappedText(lines, classified.normalized, classified.tone, notebook.source, notebook.updatedAt, {
+        width: classified.width,
+        firstPrefix: `${numberedMatch[1]}. `,
+        continuationPrefix: '   ',
+      });
+      continue;
+    }
+
+    const commandMatch = trimmed.match(/^\$\s+(.+)$/);
+    if (commandMatch) {
+      flushParagraph();
+      pushWrappedText(lines, commandMatch[1].trim(), 'command', notebook.source, notebook.updatedAt, {
+        width: 54,
+        firstPrefix: '$ ',
+        continuationPrefix: '  ',
+      });
+      continue;
+    }
+
+    if (/^(note|tip|watch for|caution):/i.test(trimmed)) {
+      flushParagraph();
+      pushWrappedText(lines, trimmed, 'sideNote', notebook.source, notebook.updatedAt, {
+        width: 56,
+        firstPrefix: '! ',
+        continuationPrefix: '  ',
+      });
       continue;
     }
 
@@ -176,154 +314,9 @@ function parseNoteSections(note: Note): NotebookSections {
 
   flushParagraph();
 
-  return sections;
-}
-
-function pushWrappedLines(
-  target: NotebookDisplayLine[],
-  lines: string[],
-  tone: NotebookLineTone,
-  source: Note['source'],
-  createdAt: string,
-  options?: {
-    width?: number;
-    prefix?: string;
-    continuationPrefix?: string;
-    stickyCount?: number;
+  while (lines.length > 0 && lines[lines.length - 1].tone === 'empty') {
+    lines.pop();
   }
-) {
-  const width = options?.width ?? 42;
-  const prefix = options?.prefix ?? '';
-  const continuationPrefix = options?.continuationPrefix ?? '';
-
-  lines.forEach((line, lineIndex) => {
-    wrapText(line, width, prefix, continuationPrefix).forEach((wrapped, wrappedIndex) => {
-      target.push({
-        id: `${createdAt}-${tone}-${target.length}-${lineIndex}-${wrappedIndex}`,
-        text: wrapped,
-        tone,
-        source,
-        createdAt,
-        stickyCount: wrappedIndex === 0 ? options?.stickyCount : undefined,
-      });
-    });
-  });
-}
-
-function addSection(
-  target: NotebookDisplayLine[],
-  sectionTitle: string,
-  entries: string[],
-  tone: Extract<NotebookLineTone, 'paragraph' | 'bullet' | 'command'>,
-  source: Note['source'],
-  createdAt: string,
-  options?: {
-    width?: number;
-    prefix?: string;
-    continuationPrefix?: string;
-  }
-) {
-  if (entries.length === 0) {
-    return;
-  }
-
-  target.push({
-    id: `${createdAt}-${sectionTitle}-${target.length}`,
-    text: sectionTitle.toUpperCase(),
-    tone: 'section',
-    source,
-    createdAt,
-    stickyCount: 2,
-  });
-
-  pushWrappedLines(target, entries, tone, source, createdAt, options);
-  target.push({
-    id: `${createdAt}-${sectionTitle}-break-${target.length}`,
-    text: '',
-    tone: 'empty',
-    source,
-    createdAt,
-  });
-}
-
-function buildNotebookLines(notes: Note[]): NotebookDisplayLine[] {
-  const orderedNotes = notes
-    .slice()
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-
-  const lines: NotebookDisplayLine[] = [];
-
-  orderedNotes.forEach((note, noteIndex) => {
-    const sections = parseNoteSections(note);
-
-    if (noteIndex > 0 && lines.length > 0 && lines[lines.length - 1].tone !== 'empty') {
-      lines.push({
-        id: `${note.id}-gap-${lines.length}`,
-        text: '',
-        tone: 'empty',
-        source: note.source,
-        createdAt: note.createdAt,
-      });
-    }
-
-    pushWrappedLines(lines, [note.title], 'noteTitle', note.source, note.createdAt, {
-      width: 34,
-      stickyCount: 4,
-    });
-
-    lines.push({
-      id: `${note.id}-meta`,
-      text: `${formatDateLabel(note.createdAt)}  |  ${toSourceLabel(note.source)}`,
-      tone: 'noteMeta',
-      source: note.source,
-      createdAt: note.createdAt,
-      stickyCount: 3,
-    });
-
-    if (
-      sections.summary.length > 0 &&
-      (sections.observations.length > 0 || sections.commands.length > 0 || sections.questions.length > 0 || sections.aiGuidance.length > 0)
-    ) {
-      addSection(lines, 'Summary', sections.summary, 'paragraph', note.source, note.createdAt, { width: 42 });
-    } else {
-      pushWrappedLines(lines, sections.summary, 'paragraph', note.source, note.createdAt, { width: 42 });
-      if (sections.summary.length > 0) {
-        lines.push({
-          id: `${note.id}-summary-break-${lines.length}`,
-          text: '',
-          tone: 'empty',
-          source: note.source,
-          createdAt: note.createdAt,
-        });
-      }
-    }
-
-    addSection(lines, 'Observations', sections.observations, 'bullet', note.source, note.createdAt, {
-      width: 42,
-      prefix: '- ',
-      continuationPrefix: '  ',
-    });
-
-    addSection(lines, 'Commands Run', sections.commands, 'command', note.source, note.createdAt, {
-      width: 38,
-      prefix: '$ ',
-      continuationPrefix: '  ',
-    });
-
-    addSection(lines, 'Questions To AI', sections.questions, 'bullet', note.source, note.createdAt, {
-      width: 41,
-      prefix: '? ',
-      continuationPrefix: '  ',
-    });
-
-    addSection(lines, 'AI Guidance', sections.aiGuidance, 'paragraph', note.source, note.createdAt, {
-      width: 42,
-    });
-
-    while (lines.length > 0 && lines[lines.length - 1].tone === 'empty') {
-      lines.pop();
-    }
-  });
 
   return lines;
 }
@@ -331,7 +324,8 @@ function buildNotebookLines(notes: Note[]): NotebookDisplayLine[] {
 function finalizePage(
   pageIndex: number,
   pageLines: NotebookDisplayLine[],
-  notebookTitle: string
+  notebookTitle: string,
+  notebook: Note
 ): NotebookPage {
   const lines = pageLines.slice(0, NOTEBOOK_LINES_PER_PAGE);
   while (lines.length < NOTEBOOK_LINES_PER_PAGE) {
@@ -342,32 +336,21 @@ function finalizePage(
     });
   }
 
-  const datedLines = pageLines.filter((line) => line.createdAt);
-  const sources = Array.from(new Set(pageLines.flatMap((line) => (line.source ? [toSourceLabel(line.source)] : []))));
-  const firstDate = datedLines[0]?.createdAt;
-  const lastDate = datedLines[datedLines.length - 1]?.createdAt;
-
-  const dateLabel = firstDate
-    ? firstDate === lastDate
-      ? formatDateLabel(firstDate)
-      : `${formatDateLabel(firstDate)} - ${formatDateLabel(lastDate ?? firstDate)}`
-    : '';
-
   return {
     id: `page-${pageIndex}`,
     headerTitle: notebookTitle,
-    dateLabel,
-    sourceLabel: sources.join(' / ') || 'FIELD NOTES',
+    dateLabel: formatDateLabel(notebook.updatedAt),
+    sourceLabel: 'AI NOTEBOOK',
     lines,
   };
 }
 
-export function buildNotebookPages(notes: Note[], notebookTitle: string): NotebookPage[] {
-  if (notes.length === 0) {
+export function buildNotebookPages(notebook: Note | null, notebookTitle: string): NotebookPage[] {
+  if (!notebook) {
     return [];
   }
 
-  const lines = buildNotebookLines(notes);
+  const lines = buildNotebookLines(notebook);
   const pages: NotebookPage[] = [];
   let currentPage: NotebookDisplayLine[] = [];
 
@@ -376,20 +359,20 @@ export function buildNotebookPages(notes: Note[], notebookTitle: string): Notebo
     const stickyCount = line.stickyCount ?? 1;
 
     if (currentPage.length > 0 && remaining < stickyCount) {
-      pages.push(finalizePage(pages.length, currentPage, notebookTitle));
+      pages.push(finalizePage(pages.length, currentPage, notebookTitle, notebook));
       currentPage = [];
     }
 
     currentPage.push(line);
 
     if (currentPage.length === NOTEBOOK_LINES_PER_PAGE) {
-      pages.push(finalizePage(pages.length, currentPage, notebookTitle));
+      pages.push(finalizePage(pages.length, currentPage, notebookTitle, notebook));
       currentPage = [];
     }
   });
 
   if (currentPage.length > 0) {
-    pages.push(finalizePage(pages.length, currentPage, notebookTitle));
+    pages.push(finalizePage(pages.length, currentPage, notebookTitle, notebook));
   }
 
   return pages;

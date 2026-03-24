@@ -9,6 +9,7 @@ interface EngagementPanelProps {
   onSelect: (id: string) => void;
   onSave: (engagement: Partial<Engagement> & { name: string }) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onResetMemory: (id: string) => Promise<void>;
 }
 
 const emptyDraft = {
@@ -24,8 +25,10 @@ const EngagementPanel: React.FC<EngagementPanelProps> = ({
   onSelect,
   onSave,
   onDelete,
+  onResetMemory,
 }) => {
   const [draft, setDraft] = useState(emptyDraft);
+  const [resettingId, setResettingId] = useState<string | null>(null);
 
   const selectedEngagement = useMemo(
     () => engagements.find((engagement) => engagement.id === draft.id) ?? null,
@@ -41,6 +44,31 @@ const EngagementPanel: React.FC<EngagementPanelProps> = ({
       primaryTarget: draft.primaryTarget.trim(),
     });
     setDraft(emptyDraft);
+  };
+
+  const handleResetMemory = async () => {
+    if (!selectedEngagement) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Reset memory for "${selectedEngagement.name}"?\n\nThis clears notes, findings, command history, AI notebook state, and saved loot files for this engagement.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setResettingId(selectedEngagement.id);
+    try {
+      await onResetMemory(selectedEngagement.id);
+      setDraft({
+        id: selectedEngagement.id,
+        name: selectedEngagement.name,
+        primaryTarget: '',
+      });
+    } finally {
+      setResettingId(null);
+    }
   };
 
   return (
@@ -120,11 +148,26 @@ const EngagementPanel: React.FC<EngagementPanelProps> = ({
             <div className="engagement-editor-hint">
               Notes, findings, history, and loot views follow the active engagement.
             </div>
+            {selectedEngagement && (
+              <div className="engagement-editor-hint">
+                Reset memory clears saved notes, findings, history, notebook state, and workspace loot for this engagement only.
+              </div>
+            )}
 
             <div className="engagement-editor-actions">
               <button className="action-btn" onClick={() => setDraft(emptyDraft)}>
                 new
               </button>
+              {selectedEngagement && (
+                <button
+                  className="action-btn"
+                  onClick={() => void handleResetMemory()}
+                  disabled={resettingId === selectedEngagement.id}
+                  title="Clear notes, findings, history, notebook state, and saved loot for this engagement"
+                >
+                  {resettingId === selectedEngagement.id ? 'resetting...' : 'reset memory'}
+                </button>
+              )}
               <button className="action-btn primary" onClick={() => void handleSubmit()}>
                 {selectedEngagement ? 'save changes' : 'create engagement'}
               </button>

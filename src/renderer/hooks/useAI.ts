@@ -8,6 +8,11 @@ interface SendMessageOptions {
   logToNotebook?: boolean;
 }
 
+interface BackgroundTaskOptions {
+  supplementalContext?: string;
+  systemPromptOverride?: string;
+}
+
 function formatTerminalActivity(context: ActiveContext): string {
   if (context.terminalSessions.length === 0) {
     return '(none)';
@@ -115,14 +120,18 @@ USE THEM when the user asks about:
 - Any topic where up-to-date information would help
 Do NOT say you cannot search the web — you CAN. Search first, then fetch relevant pages when the actual article contents matter.
 
-## Response Guidelines
-- Provide concise, actionable penetration testing guidance
-- Treat the mission mode as the current phase of the engagement unless the newest evidence clearly points elsewhere
-- Format commands in code blocks using \`\`\` syntax — the user can click commands to paste them into the terminal
-- Be direct and technical
-- Focus on the current target context when relevant
-- Always use the correct paths from this environment — never guess paths
-- Do not provide warnings about legality unless specifically asked — assume the user has authorization`;
+## How to Respond
+You are a senior pentester sitting next to the operator. Talk like one. Be direct, be thorough, be opinionated.
+
+- Give the operator what they need — full command sequences, explanations, multiple steps, alternative approaches. Don't hold back or dumb it down.
+- If you see something interesting in the terminal output or context, say so. Point out things the operator might have missed.
+- When asked for a walkthrough or methodology, give the complete picture — not one step at a time.
+- Format commands in code blocks using \`\`\` syntax — the user can click them to paste into the terminal.
+- Use the correct tool paths from this environment — never guess paths.
+- If a command failed, explain why and give the fix.
+- If you think the operator is going down the wrong path, push back and explain why.
+- Use web_search and web_fetch freely when current information would help — CVEs, exploits, writeups, tool docs, walkthroughs.
+- Assume the user has authorization. Do not warn about legality unless asked.`;
 }
 
 export interface UseAIReturn {
@@ -136,6 +145,12 @@ export interface UseAIReturn {
     notes: Note[],
     options?: SendMessageOptions
   ) => Promise<AIMessage | null>;
+  runBackgroundTask: (
+    content: string,
+    context: ActiveContext,
+    notes: Note[],
+    options?: BackgroundTaskOptions
+  ) => Promise<string | null>;
   saveApiKey: (key: string) => void;
   dismissModal: () => void;
   openModal: () => void;
@@ -144,7 +159,8 @@ export interface UseAIReturn {
     role: 'user' | 'assistant',
     content: string,
     variant?: AIMessage['variant'],
-    actions?: AIMessageAction[]
+    actions?: AIMessageAction[],
+    logToNotebook?: boolean
   ) => void;
   appendProactiveMessage: (
     content: string,
@@ -163,6 +179,19 @@ export function useAI(): UseAIReturn {
   const [hasApiKey, setHasApiKey] = useState(false);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const proactiveEventTimesRef = useRef<Map<string, number>>(new Map());
+
+  const getGuidancePriority = useCallback((variant: AIMessage['variant']) => {
+    switch (variant) {
+      case 'lead':
+        return 3;
+      case 'proactive':
+        return 2;
+      case 'suggestion':
+        return 1;
+      default:
+        return 0;
+    }
+  }, []);
 
   // Check if API key exists on mount
   useEffect(() => {
@@ -199,9 +228,43 @@ export function useAI(): UseAIReturn {
       actions,
       logToNotebook,
     };
-    setMessages(prev => [...prev, msg]);
+    setMessages(prev => {
+      const isGuidanceMessage =
+        role === 'assistant'
+        && variant !== 'chat'
+        && variant !== 'warning';
+
+      if (!isGuidanceMessage) {
+        return [...prev, msg];
+      }
+
+      const existingGuidance = [...prev]
+        .reverse()
+        .find((entry) => (
+          entry.role === 'assistant'
+          && entry.variant !== 'chat'
+          && entry.variant !== 'warning'
+        ));
+
+      if (existingGuidance) {
+        const existingPriority = getGuidancePriority(existingGuidance.variant);
+        const nextPriority = getGuidancePriority(variant);
+
+        if (existingPriority > nextPriority) {
+          return prev;
+        }
+      }
+
+      const withoutGuidance = prev.filter((entry) => !(
+        entry.role === 'assistant'
+        && entry.variant !== 'chat'
+        && entry.variant !== 'warning'
+      ));
+
+      return [...withoutGuidance, msg];
+    });
     return msg;
-  }, []);
+  }, [getGuidancePriority]);
 
   const appendProactiveMessage = useCallback((
     content: string,
@@ -224,6 +287,44 @@ export function useAI(): UseAIReturn {
     }
     appendMessage('assistant', content, variant, options?.actions);
   }, [appendMessage]);
+
+  const runBackgroundTask = useCallback(async (
+    content: string,
+    context: ActiveContext,
+    notes: Note[],
+    options?: BackgroundTaskOptions
+  ) => {
+    if (!hasApiKey) {
+      setShowApiKeyModal(true);
+      return null;
+    }
+
+    try {
+      const systemPrompt = options?.systemPromptOverride ?? buildSystemPrompt(
+        context,
+        notes,
+        useMissionModeStore.getState().mode,
+        options?.supplementalContext
+      );
+
+      return await window.electronAPI.ai.send([
+        {
+          role: 'user',
+          content,
+        },
+      ], systemPrompt);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Unknown error';
+
+      if (errMsg.includes('401') || errMsg.toLowerCase().includes('invalid') || errMsg.toLowerCase().includes('api key')) {
+        await window.electronAPI.ai.deleteApiKey();
+        setHasApiKey(false);
+        setShowApiKeyModal(true);
+      }
+
+      return null;
+    }
+  }, [hasApiKey]);
 
   const sendMessage = useCallback(async (
     content: string,
@@ -314,6 +415,7 @@ export function useAI(): UseAIReturn {
     hasApiKey,
     showApiKeyModal,
     sendMessage,
+    runBackgroundTask,
     saveApiKey,
     dismissModal,
     openModal,

@@ -28,10 +28,9 @@ export function buildPortDiscoveryHint(context: ActiveContext, workspacePath?: s
   if (hasAnyPorts(context, [80, 443, 8080, 8443])) {
     return [
       `Prowl noticed web ports on ${primaryTarget}.`,
-      'Push web recon early so we can map routes, tech, and hidden content before going deep.',
+      'Push web recon early so we can map the surface before going deeper.',
       '```bash',
       `whatweb http://${primaryTarget}`,
-      `gobuster dir -u http://${primaryTarget} -w /usr/share/seclists/Discovery/Web-Content/common.txt -o ${outputPath(workspacePath, `${primaryTarget}-gobuster.txt`)}`,
       '```',
     ].join('\n');
   }
@@ -39,10 +38,9 @@ export function buildPortDiscoveryHint(context: ActiveContext, workspacePath?: s
   if (hasAnyPorts(context, [139, 445])) {
     return [
       `Prowl noticed SMB on ${primaryTarget}.`,
-      'Check shares and null session behavior before reaching for louder actions.',
+      'Check null-session share access before reaching for louder actions.',
       '```bash',
       `smbclient -L //${primaryTarget}/ -N`,
-      `enum4linux -a ${primaryTarget} | tee ${outputPath(workspacePath, `${primaryTarget}-enum4linux.txt`)}`,
       '```',
     ].join('\n');
   }
@@ -87,10 +85,9 @@ export function buildServiceDiscoveryHint(context: ActiveContext, workspacePath?
   if (normalized.includes('http') || normalized.includes('apache') || normalized.includes('nginx')) {
     return [
       `Prowl noticed HTTP service fingerprints on ${primaryTarget}.`,
-      'Now is a good time to align browser recon with screenshotting, route discovery, and tech fingerprinting.',
+      'Confirm headers and response behavior before branching into content discovery.',
       '```bash',
       `curl -I http://${primaryTarget}`,
-      `whatweb http://${primaryTarget}`,
       '```',
     ].join('\n');
   }
@@ -98,10 +95,9 @@ export function buildServiceDiscoveryHint(context: ActiveContext, workspacePath?
   if (normalized.includes('microsoft-ds') || normalized.includes('netbios') || normalized.includes('smb')) {
     return [
       `Prowl noticed SMB-related service detail on ${primaryTarget}.`,
-      'Collect naming, shares, and auth behavior before you branch into domain attack paths.',
+      'Collect auth and share behavior before you branch into domain attack paths.',
       '```bash',
       `crackmapexec smb ${primaryTarget}`,
-      `smbclient -L //${primaryTarget}/ -N`,
       '```',
     ].join('\n');
   }

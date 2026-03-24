@@ -5,6 +5,11 @@ interface BrowserPanelProps {
   onPageContent?: (url: string, content: string) => void;
   initialUrl?: string;
   onInitialUrlHandled?: () => void;
+  restoredUrl?: string;
+  mode?: 'dock' | 'focus';
+  onToggleMode?: () => void;
+  onClose?: () => void;
+  onCurrentUrlChange?: (url: string) => void;
 }
 
 const BrowserPanel: React.FC<BrowserPanelProps> = ({
@@ -12,6 +17,11 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({
   onPageContent,
   initialUrl,
   onInitialUrlHandled,
+  restoredUrl,
+  mode = 'dock',
+  onToggleMode,
+  onClose,
+  onCurrentUrlChange,
 }) => {
   const [url, setUrl] = useState('');
   const [currentUrl, setCurrentUrl] = useState('');
@@ -28,7 +38,8 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({
     }
     setCurrentUrl(finalUrl);
     setUrl(finalUrl);
-  }, []);
+    onCurrentUrlChange?.(finalUrl);
+  }, [onCurrentUrlChange]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -65,18 +76,27 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({
   }, [initialUrl, navigate, onInitialUrlHandled]);
 
   useEffect(() => {
+    if (currentUrl || !restoredUrl) return;
+    navigate(restoredUrl);
+  }, [currentUrl, navigate, restoredUrl]);
+
+  useEffect(() => {
     const webview = webviewRef.current;
-    if (!webview) return;
+    if (!webview || !currentUrl) return;
 
     const onStartLoad = () => setIsLoading(true);
     const onStopLoad = () => {
       setIsLoading(false);
       setCanGoBack(webview.canGoBack());
       setCanGoForward(webview.canGoForward());
+      if (typeof webview.getURL === 'function') {
+        onCurrentUrlChange?.(webview.getURL());
+      }
     };
     const onNavigate = (e: any) => {
       setUrl(e.url);
       setCurrentUrl(e.url);
+      onCurrentUrlChange?.(e.url);
     };
 
     webview.addEventListener('did-start-loading', onStartLoad);
@@ -90,9 +110,7 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({
       webview.removeEventListener('did-navigate', onNavigate);
       webview.removeEventListener('did-navigate-in-page', onNavigate);
     };
-  }, []);
-
-  const proxyUrl = `socks5://127.0.0.1:${socksPort}`;
+  }, [currentUrl, onCurrentUrlChange]);
 
   return (
     <div className="browser-panel">
@@ -121,10 +139,26 @@ const BrowserPanel: React.FC<BrowserPanelProps> = ({
           />
           {isLoading && <div className="browser-loading-bar" />}
         </div>
-        <button className="browser-scan-btn" onClick={handleScanPage} title="Send page to AI for analysis">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-          Scan
-        </button>
+        <div className="browser-toolbar-actions">
+          <button className="browser-scan-btn" onClick={handleScanPage} title="Send page to AI for attack-surface and business-logic analysis">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            AI Scan
+          </button>
+          <button
+            className="browser-mode-btn"
+            onClick={onToggleMode}
+            title={mode === 'focus' ? 'Dock browser back into the workspace' : 'Pop browser into focused view'}
+          >
+            {mode === 'focus' ? (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+            ) : (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>
+            )}
+          </button>
+          <button className="browser-mode-btn close" onClick={onClose} title="Close browser">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
       </div>
 
       {/* Webview */}

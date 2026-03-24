@@ -59,6 +59,12 @@ export function useEngagements() {
     setCurrentEngagementId(current);
   }, [removeEngagement, setCurrentEngagementId]);
 
+  const resetEngagementMemory = useCallback(async (id: string) => {
+    const reset = await window.electronAPI.engagements.resetMemory(id);
+    updateEngagement(reset);
+    return reset;
+  }, [updateEngagement]);
+
   const reloadEngagements = useCallback(async () => {
     const [all, current] = await Promise.all([
       window.electronAPI.engagements.getAll(),
@@ -75,6 +81,7 @@ export function useEngagements() {
     saveEngagement,
     selectEngagement,
     deleteEngagement,
+    resetEngagementMemory,
     reloadEngagements,
   };
 }

@@ -20,6 +20,7 @@ interface ProactiveEventStore {
   lastEvent: StoredProactiveEvent | null;
   events: StoredProactiveEvent[];
   emitEvent: (payload: ProactiveEvent) => void;
+  clearEvents: () => void;
 }
 
 export const useProactiveEventStore = create<ProactiveEventStore>((set) => ({
@@ -38,4 +39,5 @@ export const useProactiveEventStore = create<ProactiveEventStore>((set) => ({
         payload,
       }, ...state.events].slice(0, 200),
     })),
+  clearEvents: () => set({ lastEvent: null, events: [] }),
 }));

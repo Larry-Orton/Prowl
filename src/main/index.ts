@@ -10,6 +10,7 @@ import {
   saveEngagement,
   getEngagements,
   deleteEngagement,
+  resetEngagementMemory,
   getCurrentEngagementId,
   setCurrentEngagementId,
   saveNote,
@@ -96,6 +97,24 @@ function migrateWorkspaceDirectory(previousWorkspacePath?: string, nextWorkspace
   }
 
   fs.mkdirSync(nextHostPath, { recursive: true });
+}
+
+function clearWorkspaceDirectory(workspacePath?: string): void {
+  if (!workspacePath) {
+    return;
+  }
+
+  const workspaceRoot = path.resolve(containerManager.getWorkspacePath());
+  const targetHostPath = resolveWorkspaceHostPath(workspacePath);
+  fs.mkdirSync(targetHostPath, { recursive: true });
+
+  if (targetHostPath === workspaceRoot) {
+    return;
+  }
+
+  for (const entry of fs.readdirSync(targetHostPath)) {
+    fs.rmSync(path.join(targetHostPath, entry), { recursive: true, force: true });
+  }
 }
 
 function createWindow(): void {
@@ -199,6 +218,16 @@ ipcMain.handle('engagements:getCurrent', async () => {
 
 ipcMain.handle('engagements:setCurrent', async (_, id: string) => {
   return setCurrentEngagementId(id);
+});
+
+ipcMain.handle('engagements:resetMemory', async (_, id: string) => {
+  const previous = getEngagements().find((item) => item.id === id);
+  const reset = resetEngagementMemory(id);
+  clearWorkspaceDirectory(previous?.workspacePath);
+  if (reset.workspacePath !== previous?.workspacePath) {
+    clearWorkspaceDirectory(reset.workspacePath);
+  }
+  return reset;
 });
 
 // ── Notes IPC ──────────────────────────────────────
