@@ -808,6 +808,38 @@ code {
 .terminal-container .xterm { height: 100%; }
 .terminal-container .xterm-viewport { overflow-y: scroll !important; }
 
+/* ── Send to AI Button ─────────────────────────── */
+.send-to-ai-btn {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  z-index: 50;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+  transition: background 0.15s, transform 0.15s, opacity 0.15s;
+  opacity: 0.9;
+  animation: send-to-ai-fade-in 0.3s ease;
+}
+
+.send-to-ai-btn:hover {
+  background: var(--accent2);
+  transform: translateY(-1px);
+  opacity: 1;
+}
+
+@keyframes send-to-ai-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 0.9; transform: translateY(0); }
+}
+
 /* ── AI Panel ───────────────────────────────────── */
 
 .ai-header {

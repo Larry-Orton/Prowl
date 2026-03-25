@@ -927,63 +927,50 @@ const App: React.FC = () => {
     activeNotebookId, setActiveNotebook, setSelectedNote, updateEngagementInStore
   ]);
 
-  // ── Smart command completion analysis ───────────
-  // When a command finishes, decide if the AI should weigh in.
-  const commandCompleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handleCommandComplete = useCallback((command: string, output: string) => {
-    if (!hasApiKey) return;
+  // ── "Send to AI" support ────────────────────────
+  // Stores the last completed command + output so the floating button can send it.
+  const lastCompletedCommandRef = useRef<{ command: string; output: string } | null>(null);
+  const [showSendToAI, setShowSendToAI] = useState(false);
 
-    // Clean ANSI escape codes for analysis
-    const cleanOutput = output.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '').trim();
+  const handleCommandComplete = useCallback((command: string, output: string) => {
+    // Strip any remaining ANSI/OSC escape codes (xterm buffer should be clean, but just in case)
+    const cleanOutput = output
+      .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')   // CSI sequences
+      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '') // OSC sequences
+      .replace(/\x1b[()][A-Z0-9]/g, '')          // charset sequences
+      .replace(/\x1b[>=<]/g, '')                  // mode sequences
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '') // control chars (keep \n \r \t)
+      .replace(/\r/g, '')
+      .trim();
     const cmd = command.toLowerCase().trim();
 
-    // Skip trivial commands that don't need AI analysis
-    const trivialCommands = ['ls', 'cd', 'pwd', 'clear', 'whoami', 'id', 'exit', 'history', 'cat', 'echo', 'man', 'help'];
-    if (trivialCommands.some(t => cmd === t || cmd.startsWith(t + ' '))) return;
+    // Skip trivial commands — no need to show "Send to AI" for ls, cd, etc.
+    const trivialCommands = ['ls', 'cd', 'pwd', 'clear', 'whoami', 'id', 'exit', 'history', 'echo', 'man', 'help'];
+    if (trivialCommands.some(t => cmd === t || cmd.startsWith(t + ' '))) {
+      setShowSendToAI(false);
+      return;
+    }
 
-    // Skip if output is too short to be meaningful (< 3 lines)
     const lines = cleanOutput.split('\n').filter(Boolean);
-    if (lines.length < 3) return;
-
-    // Detect file-write commands where output went to a file
-    const fileOutputPatterns = [
-      /-o\s+(\S+)/, /-oN\s+(\S+)/, /-oA\s+(\S+)/, /-oX\s+(\S+)/, /-oG\s+(\S+)/,  // nmap
-      />\s*(\S+)/, />>\s*(\S+)/,  // shell redirect
-      /--output[= ]\s*(\S+)/, /-w\s+(\S+)/,  // various tools
-    ];
-
-    let outputFile: string | null = null;
-    for (const pattern of fileOutputPatterns) {
-      const match = command.match(pattern);
-      if (match) {
-        outputFile = match[1];
-        break;
-      }
+    if (lines.length < 2) {
+      setShowSendToAI(false);
+      return;
     }
 
-    // Debounce — don't flood the AI with rapid commands
-    if (commandCompleteTimerRef.current) {
-      clearTimeout(commandCompleteTimerRef.current);
-    }
+    lastCompletedCommandRef.current = { command, output: cleanOutput };
+    setShowSendToAI(true);
+  }, []);
 
-    commandCompleteTimerRef.current = setTimeout(() => {
-      let prompt: string;
+  const handleSendLastOutputToAI = useCallback(() => {
+    const last = lastCompletedCommandRef.current;
+    if (!last) return;
 
-      if (outputFile && lines.length < 5) {
-        // Command wrote to a file and had minimal terminal output
-        prompt = `The command \`${command}\` just finished. It wrote output to \`${outputFile}\`. The terminal showed minimal output:\n\n\`\`\`\n${cleanOutput.slice(-500)}\n\`\`\`\n\nAnalyze what this command did, what the output file likely contains, and suggest the next step. If I should review the file first, tell me how.`;
-      } else {
-        // Command produced terminal output — analyze it
-        prompt = `The command \`${command}\` just completed. Here is the output:\n\n\`\`\`\n${cleanOutput.slice(-3000)}\n\`\`\`\n\nBriefly analyze the key findings and suggest what to do next.`;
-      }
+    setShowAI(true);
+    setShowSendToAI(false);
 
-      // Use background task so it doesn't disrupt the chat flow
-      void runBackgroundTask(prompt, context, notes, {
-        variant: 'proactive',
-        logToNotebook: true,
-      });
-    }, 2000);  // 2 second debounce
-  }, [hasApiKey, context, notes, runBackgroundTask]);
+    const prompt = `Analyze this command output and tell me what you see. What are the key findings? What should I do next?\n\nCommand: \`${last.command}\`\n\n\`\`\`\n${last.output.slice(-3000)}\n\`\`\``;
+    void sendMessage(prompt, context, notes);
+  }, [context, notes, sendMessage]);
 
   const ensureCanonicalNotebook = useCallback(async () => {
     const activeNotebook = activeNotebookId
@@ -1255,20 +1242,13 @@ const App: React.FC = () => {
     )) ?? null;
   }, [leadCheckpoints]);
 
-  const leadBackgroundLabel = useMemo(() => {
-    if (leadThinkingLabel) {
-      return leadThinkingLabel;
-    }
+  // AI Lead disabled — no background thinking label
+  const leadBackgroundLabel = null as string | null;
 
-    if (!hasApiKey || !context.primaryTarget || !latestRunningLeadCheckpoint) {
-      return null;
-    }
-
-    const { activity } = latestRunningLeadCheckpoint;
-    return `Lead Mode watching ${activity.command.trim().slice(0, 64)}...`;
-  }, [context.primaryTarget, hasApiKey, latestRunningLeadCheckpoint, leadThinkingLabel]);
-
+  // AI Lead analysis disabled — using simple assistant model instead.
+  // The handleCommandComplete callback in the terminal handles proactive analysis.
   useEffect(() => {
+    if (true) return; // eslint-disable-line no-constant-condition
     if (!hasApiKey || !context.primaryTarget || !latestCompletedLeadCheckpoint) {
       setLeadThinkingLabel(null);
       return;
@@ -1442,7 +1422,9 @@ const App: React.FC = () => {
       .find((note) => !processedUserNoteIdsRef.current.has(`${note.id}:${note.updatedAt}`)) ?? null;
   }, [activeNotebookId, notes]);
 
+  // Notebook scribe disabled — notes are saved as-is without AI rewriting
   useEffect(() => {
+    if (true) return; // eslint-disable-line no-constant-condition
     if (!hasApiKey || !context.primaryTarget || !pendingRawUserNote) {
       return;
     }
@@ -2277,6 +2259,7 @@ const App: React.FC = () => {
                 overflow: 'hidden',
                 minWidth: 0,
                 gap: layout === 'split' && visiblePaneIds.length > 1 ? 1 : 0,
+                position: 'relative',
               }}
             >
               {tabs.map(tab => (
@@ -2298,9 +2281,20 @@ const App: React.FC = () => {
                     isActive={tab.id === activeTabId}
                     onKeywordCommand={handleKeywordCommand}
                     onCommandComplete={handleCommandComplete}
+                    onLinkClick={(url) => openBrowser(url)}
                   />
                 </div>
               ))}
+              {/* Floating "Send to Prowl AI" button */}
+              {showSendToAI && hasApiKey && (
+                <button
+                  className="send-to-ai-btn"
+                  onClick={handleSendLastOutputToAI}
+                  title="Send last command output to Prowl AI for analysis"
+                >
+                  Send to Prowl AI
+                </button>
+              )}
             </div>
             {browserDocked && (
               <div className="resize-handle" onMouseDown={handleResizeMouseDown('browser')} />

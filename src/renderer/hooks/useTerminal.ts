@@ -16,6 +16,7 @@ interface UseTerminalOptions {
   onCommandRun: (cmd: string) => void;
   onOutput: (data: string) => void;
   onCommandComplete?: (command: string, output: string) => void;
+  onLinkClick?: (url: string) => void;
 }
 
 function detectPromptReturn(output: string, shellType: 'local' | 'kali'): boolean {
@@ -53,6 +54,7 @@ export function useTerminal({
   onCommandRun: _onCommandRun,
   onOutput,
   onCommandComplete,
+  onLinkClick,
 }: UseTerminalOptions) {
   const termRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -61,6 +63,7 @@ export function useTerminal({
   const outputTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputBufferRef = useRef('');
   const lastCommandRef = useRef('');
+  const commandStartRowRef = useRef(-1);
   const inputEscapeStateRef = useRef<'none' | 'esc' | 'csi' | 'ss3'>('none');
   const forwardedEscapeStateRef = useRef<'none' | 'esc' | 'csi' | 'ss3'>('none');
   const forwardedEscapeBufferRef = useRef('');
@@ -129,6 +132,11 @@ export function useTerminal({
         if (trimmed && !parseKeywordCommand(buf)) {
           _onCommandRun(trimmed);
           lastCommandRef.current = trimmed;
+          // Record cursor row so we know where this command's output starts
+          const t = termRef.current;
+          if (t?.buffer?.active) {
+            commandStartRowRef.current = t.buffer.active.cursorY + t.buffer.active.baseY;
+          }
         }
         buf = '';
       } else if (ch === '\x1b') {
@@ -244,7 +252,13 @@ export function useTerminal({
     });
 
     const fitAddon = new FitAddon();
-    const webLinksAddon = new WebLinksAddon();
+    const webLinksAddon = new WebLinksAddon((_event, url) => {
+      if (onLinkClick) {
+        onLinkClick(url);
+      } else {
+        window.open(url, '_blank');
+      }
+    });
 
     term.loadAddon(fitAddon);
     term.loadAddon(webLinksAddon);
@@ -295,6 +309,22 @@ export function useTerminal({
 
     requestAnimationFrame(openWhenReady);
 
+    const readCommandOutput = (): string => {
+      if (!term.buffer?.active) return '';
+      const buf = term.buffer.active;
+      const endRow = buf.cursorY + buf.baseY;
+      // Read from where the command was entered, or last 50 lines as fallback
+      const startRow = commandStartRowRef.current >= 0
+        ? commandStartRowRef.current
+        : Math.max(0, endRow - 50);
+      const lines: string[] = [];
+      for (let i = startRow; i <= endRow; i++) {
+        const line = buf.getLine(i);
+        if (line) lines.push(line.translateToString(true));
+      }
+      return lines.join('\n').trim();
+    };
+
     const flushOutputBuffer = () => {
       const buf = outputBufferRef.current;
       if (!buf) {
@@ -305,10 +335,11 @@ export function useTerminal({
       recordTerminalOutput(tabId, shellType, terminalTitle, buf);
       setLastCommandOutput(buf);
 
-      // Notify App that a command finished with its output
+      // Notify App that a command finished with its output — use clean rendered text
       const cmd = lastCommandRef.current;
       if (cmd && onCommandComplete) {
-        onCommandComplete(cmd, buf);
+        const cleanOutput = readCommandOutput();
+        onCommandComplete(cmd, cleanOutput);
         lastCommandRef.current = '';
       }
 

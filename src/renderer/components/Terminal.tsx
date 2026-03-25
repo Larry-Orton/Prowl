@@ -11,9 +11,10 @@ interface TerminalProps {
   onKeywordCommand: (action: KeywordAction) => void;
   onCommandLogged?: (cmd: string) => void;
   onCommandComplete?: (command: string, output: string) => void;
+  onLinkClick?: (url: string) => void;
 }
 
-const Terminal: React.FC<TerminalProps> = ({ tabId, isActive, onKeywordCommand, onCommandLogged, onCommandComplete }) => {
+const Terminal: React.FC<TerminalProps> = ({ tabId, isActive, onKeywordCommand, onCommandLogged, onCommandComplete, onLinkClick }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const recordTerminalCommand = useSessionStore(s => s.recordTerminalCommand);
   const lastOutputRef = useRef('');
@@ -42,6 +43,7 @@ const Terminal: React.FC<TerminalProps> = ({ tabId, isActive, onKeywordCommand, 
     onCommandRun: handleCommandRun,
     onOutput: handleOutput,
     onCommandComplete,
+    onLinkClick,
   });
 
   useEffect(() => {
