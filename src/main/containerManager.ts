@@ -225,13 +225,21 @@ class ContainerManager {
     await this.execCommand('killall openvpn 2>/dev/null || true');
   }
 
-  async getVPNStatus(): Promise<{ connected: boolean; ip?: string }> {
+  async getVPNStatus(): Promise<{ connected: boolean; ip?: string; file?: string }> {
     try {
       const result = await this.execCommand(
         'ip addr show tun0 2>/dev/null | grep "inet " | awk \'{print $2}\' | cut -d/ -f1'
       );
       const ip = result.trim();
-      return { connected: !!ip, ip: ip || undefined };
+      if (!ip) return { connected: false };
+      // Get the config file name from the running openvpn process
+      let file: string | undefined;
+      try {
+        const ps = await this.execCommand('ps aux | grep "[o]penvpn --config" | head -1');
+        const match = ps.match(/--config\s+\/vpn\/(\S+)/);
+        if (match) file = match[1];
+      } catch { /* ignore */ }
+      return { connected: true, ip, file };
     } catch {
       return { connected: false };
     }

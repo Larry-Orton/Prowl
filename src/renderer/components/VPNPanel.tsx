@@ -56,6 +56,8 @@ const VPNPanel: React.FC<VPNPanelProps> = ({ onClose }) => {
 
   const handleDisconnectVPN = useCallback(async () => {
     await window.electronAPI.vpn.disconnect();
+    // Wait for tun0 to go down
+    await new Promise(r => setTimeout(r, 2000));
     const vs = await window.electronAPI.vpn.getStatus();
     setVpnStatus(vs);
   }, []);
@@ -105,23 +107,34 @@ const VPNPanel: React.FC<VPNPanelProps> = ({ onClose }) => {
               {/* VPN Files */}
               <div className="cp-section">
                 <div className="cp-label">Configuration Files</div>
-                {vpnFiles.length > 0 && !vpnStatus.connected && (
+                {vpnFiles.length > 0 && (
                   <div className="cp-vpn-files">
-                    {vpnFiles.map(f => (
-                      <button
-                        key={f}
-                        className="cp-vpn-file"
-                        onClick={() => handleConnectVPN(f)}
-                        disabled={isConnectingVPN}
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                        {f}
-                        {isConnectingVPN && <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--text3)' }}>connecting...</span>}
-                      </button>
-                    ))}
+                    {vpnFiles.map(f => {
+                      const isActive = vpnStatus.connected && vpnStatus.file === f;
+                      return (
+                        <button
+                          key={f}
+                          className={`cp-vpn-file${isActive ? ' active' : ''}`}
+                          onClick={async () => {
+                            if (isActive) return;
+                            if (vpnStatus.connected) {
+                              await handleDisconnectVPN();
+                              await new Promise(r => setTimeout(r, 1000));
+                            }
+                            await handleConnectVPN(f);
+                          }}
+                          disabled={isConnectingVPN || isActive}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                          {f}
+                          {isActive && <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--accent)' }}>active</span>}
+                          {isConnectingVPN && !isActive && <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--text3)' }}>connecting...</span>}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
-                {vpnFiles.length === 0 && !vpnStatus.connected && (
+                {vpnFiles.length === 0 && (
                   <div className="cp-info">No VPN files uploaded yet.</div>
                 )}
                 <button className="export-btn" onClick={handleUploadVPN} style={{ marginTop: 6 }}>
