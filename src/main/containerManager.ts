@@ -211,21 +211,27 @@ class ContainerManager {
   // ── VPN Management ───────────────────────────
 
   async connectVPN(ovpnFilename: string): Promise<string> {
+    // Kill any existing openvpn processes first
+    await this.execCommand(
+      'kill -9 $(pgrep -f "openvpn --config" 2>/dev/null) 2>/dev/null; sleep 1; true'
+    );
     // Ensure TUN device exists (Docker Desktop on Windows doesn't provide it)
     await this.execCommand(
       'mkdir -p /dev/net && [ ! -e /dev/net/tun ] && mknod /dev/net/tun c 10 200 && chmod 600 /dev/net/tun || true'
     );
+    // Remove old tun0 if lingering
+    await this.execCommand('ip link del tun0 2>/dev/null || true');
     return this.execCommand(
-      `openvpn --config /vpn/${ovpnFilename} --daemon --log /tmp/vpn.log && sleep 8 && ` +
-      `(ip link show tun0 &>/dev/null && echo "connected" || (tail -5 /tmp/vpn.log && echo "failed"))`
+      `rm -f /tmp/vpn.log && openvpn --config /vpn/${ovpnFilename} --daemon --log /tmp/vpn.log && sleep 10 && ` +
+      `(ip link show tun0 &>/dev/null && echo "connected" || (tail -10 /tmp/vpn.log && echo "failed"))`
     );
   }
 
   async disconnectVPN(): Promise<void> {
-    // Kill all openvpn processes aggressively (SIGKILL for zombies)
     await this.execCommand(
-      'killall -9 openvpn 2>/dev/null; ' +
-      'pkill -9 -f openvpn 2>/dev/null; ' +
+      'kill -9 $(pgrep -f "openvpn --config" 2>/dev/null) 2>/dev/null; ' +
+      'sleep 1; ' +
+      'ip link del tun0 2>/dev/null; ' +
       'rm -f /tmp/vpn.log; ' +
       'true'
     );
