@@ -66,9 +66,9 @@ class ContainerManager {
         'inspect', CONTAINER_NAME, '--format', '{{.State.Running}}'
       ]);
       if (state.trim() === 'true') return outdated ? 'update_available' : 'running';
-      return outdated ? 'update_available' : 'stopped';
+      return 'stopped';
     } catch {
-      return outdated ? 'update_available' : 'stopped';
+      return 'stopped';
     }
   }
 
@@ -174,10 +174,12 @@ class ContainerManager {
   async stopContainer(): Promise<void> {
     if (!this.runtime) return;
     try {
-      await this.exec(this.runtimePath, ['stop', CONTAINER_NAME]);
-    } catch {
-      // already stopped
-    }
+      await this.exec(this.runtimePath, ['update', '--restart', 'no', CONTAINER_NAME]);
+    } catch { /* ignore */ }
+    try {
+      // Use -t 3 for faster stop (3 second grace period instead of 10)
+      await this.exec(this.runtimePath, ['stop', '-t', '3', CONTAINER_NAME], 15000);
+    } catch { /* ignore */ }
   }
 
   async removeContainer(): Promise<void> {
@@ -212,19 +214,29 @@ class ContainerManager {
 
   async connectVPN(ovpnFilename: string): Promise<string> {
     // Kill any existing openvpn processes first
-    await this.execCommand(
-      'kill -9 $(pgrep -f "openvpn --config" 2>/dev/null) 2>/dev/null; sleep 1; true'
-    );
-    // Ensure TUN device exists (Docker Desktop on Windows doesn't provide it)
-    await this.execCommand(
-      'mkdir -p /dev/net && [ ! -e /dev/net/tun ] && mknod /dev/net/tun c 10 200 && chmod 600 /dev/net/tun || true'
-    );
+    try {
+      await this.execCommand(
+        'kill -9 $(pgrep -f "openvpn --config" 2>/dev/null) 2>/dev/null; sleep 1; true'
+      );
+    } catch { /* ignore */ }
+    // Ensure TUN device exists
+    try {
+      await this.execCommand(
+        'mkdir -p /dev/net && [ ! -e /dev/net/tun ] && mknod /dev/net/tun c 10 200 && chmod 600 /dev/net/tun || true'
+      );
+    } catch { /* ignore */ }
     // Remove old tun0 if lingering
-    await this.execCommand('ip link del tun0 2>/dev/null || true');
-    return this.execCommand(
-      `rm -f /tmp/vpn.log && openvpn --config /vpn/${ovpnFilename} --daemon --log /tmp/vpn.log && sleep 10 && ` +
-      `(ip link show tun0 &>/dev/null && echo "connected" || (tail -10 /tmp/vpn.log && echo "failed"))`
-    );
+    try {
+      await this.execCommand('ip link del tun0 2>/dev/null || true');
+    } catch { /* ignore */ }
+    // Start openvpn in background — don't wait for connection here
+    // The UI polls getVPNStatus() to detect when tun0 comes up
+    try {
+      await this.execCommand(
+        `rm -f /tmp/vpn.log && openvpn --config /vpn/${ovpnFilename} --daemon --log /tmp/vpn.log`
+      );
+    } catch { /* ignore — openvpn prints warnings to stderr */ }
+    return 'started';
   }
 
   async disconnectVPN(): Promise<void> {

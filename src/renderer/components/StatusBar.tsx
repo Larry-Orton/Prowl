@@ -10,7 +10,6 @@ interface StatusBarProps {
   findingCount: number;
   isAIActive: boolean;
   isThinking: boolean;
-  backgroundThinkingLabel?: string | null;
 }
 
 const StatusBar: React.FC<StatusBarProps> = ({
@@ -19,7 +18,6 @@ const StatusBar: React.FC<StatusBarProps> = ({
   findingCount,
   isAIActive,
   isThinking,
-  backgroundThinkingLabel,
 }) => {
   const hasCriticalPorts = context.discoveredPorts.some(p => CRITICAL_PORTS.includes(p));
   const theme = useThemeStore(s => s.currentTheme);
@@ -61,9 +59,9 @@ const StatusBar: React.FC<StatusBarProps> = ({
 
       <div className="sb-group sb-right">
         <div className="sb-item">
-          <span className={`sb-dot ${(isThinking || backgroundThinkingLabel) ? 'thinking' : isAIActive ? 'ready' : 'off'}`} />
+          <span className={`sb-dot ${isThinking ? 'thinking' : isAIActive ? 'ready' : 'off'}`} />
           <span className="sb-value dim">
-            {isThinking ? 'AI thinking' : backgroundThinkingLabel || (isAIActive ? 'AI ready' : 'AI off')}
+            {isThinking ? 'AI thinking' : (isAIActive ? 'AI ready' : 'AI off')}
           </span>
         </div>
         <div className="sb-item">

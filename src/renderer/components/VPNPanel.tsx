@@ -44,24 +44,16 @@ const VPNPanel: React.FC<VPNPanelProps> = ({ onClose }) => {
         await window.electronAPI.vpn.disconnect();
         await new Promise(r => setTimeout(r, 3000));
       }
-      const result = await window.electronAPI.vpn.connect(filename);
-      // The connect command waits ~10s internally and returns "connected" or error
-      if (result.includes('connected')) {
+      // Start openvpn — returns immediately, connection happens in background
+      await window.electronAPI.vpn.connect(filename);
+      // Poll for tun0 to come up (takes 5-15 seconds typically)
+      for (let i = 0; i < 8; i++) {
+        await new Promise(r => setTimeout(r, 2500));
         const vs = await window.electronAPI.vpn.getStatus();
         setVpnStatus(vs);
         if (vs.connected) {
           emitEvent({ type: 'vpn_connected', ip: vs.ip });
-        }
-      } else {
-        // Connection failed, poll a few more times in case it's slow
-        for (let i = 0; i < 3; i++) {
-          await new Promise(r => setTimeout(r, 3000));
-          const vs = await window.electronAPI.vpn.getStatus();
-          setVpnStatus(vs);
-          if (vs.connected) {
-            emitEvent({ type: 'vpn_connected', ip: vs.ip });
-            break;
-          }
+          break;
         }
       }
     } catch {

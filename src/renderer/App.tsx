@@ -16,17 +16,9 @@ import type { KeywordAction } from '@shared/terminalKeywords';
 import { buildWorkspacePath } from '@shared/workspacePaths';
 import {
   buildCanonicalNotebookContent,
-  buildLeadSimplificationPrompt,
-  buildLeadSystemPrompt,
-  buildLeadUserPrompt,
-  buildNotebookScribeSystemPrompt,
-  buildNotebookScribeUserPrompt,
-  getLeadCommandComplexityIssue,
   inferNotebookSectionFromText,
   mergeCanonicalNotebook,
-  parseLeadAnalysis,
-  parseNotebookScribeResult,
-} from './lib/aiLead';
+} from './lib/notebook';
 import { inferMissionMode, MISSION_MODE_META } from './lib/missionMode';
 import { resolveNotebookAIIntent, type NotebookAIIntent } from './lib/notebookAI';
 import { useEngagements } from './hooks/useEngagements';
@@ -142,7 +134,6 @@ const App: React.FC = () => {
   const [notesWidth, setNotesWidth] = useState(220);
   const [aiWidth, setAiWidth] = useState(280);
   const [showHelpModal, setShowHelpModal] = useState(false);
-  const [leadThinkingLabel, setLeadThinkingLabel] = useState<string | null>(null);
   const isDraggingRef = useRef<'notes' | 'ai' | 'browser' | null>(null);
 
   const handleResizeMouseDown = useCallback((panel: 'notes' | 'ai' | 'browser') => (e: React.MouseEvent) => {
@@ -259,10 +250,6 @@ const App: React.FC = () => {
   const hintedServicesRef = useRef('');
   const capturedPortFindingsRef = useRef<Set<string>>(new Set());
   const capturedServiceFindingsRef = useRef<Set<string>>(new Set());
-  const analyzedLeadSignaturesRef = useRef<Set<string>>(new Set());
-  const processedUserNoteIdsRef = useRef<Set<string>>(new Set());
-  const leadTaskRunningRef = useRef(false);
-  const notebookScribeRunningRef = useRef(false);
   const saveCanonicalNotebookUpdateRef = useRef<((section: Parameters<typeof mergeCanonicalNotebook>[0]['section'], entry: string, nextStep?: string) => Promise<unknown>) | null>(null);
 
   // Init theme + create first tab on mount
@@ -345,7 +332,6 @@ const App: React.FC = () => {
     setQueuedTerminalCommands({});
     setDismissedObjectiveKey(null);
     setAiInitialInput('');
-    setLeadThinkingLabel(null);
     setSelectedNote(null);
     setActiveNotebook(null, null);
     setNotesSearchQuery('');
@@ -354,11 +340,6 @@ const App: React.FC = () => {
     hintedServicesRef.current = '';
     capturedPortFindingsRef.current.clear();
     capturedServiceFindingsRef.current.clear();
-    analyzedLeadSignaturesRef.current.clear();
-    processedUserNoteIdsRef.current.clear();
-    leadTaskRunningRef.current = false;
-    notebookScribeRunningRef.current = false;
-
     await Promise.all([
       reloadNotes(),
       reloadCommands(),
@@ -1215,284 +1196,6 @@ const App: React.FC = () => {
     sendMessage,
   ]);
 
-  const leadCheckpoints = useMemo(() => {
-    const checkpoints = context.terminalSessions.flatMap((session) => (
-      session.recentActivity.map((activity) => ({ session, activity }))
-    ));
-
-    checkpoints.sort((a, b) => (
-      new Date(b.activity.updatedAt).getTime() - new Date(a.activity.updatedAt).getTime()
-    ));
-
-    return checkpoints;
-  }, [context.terminalSessions]);
-
-  const latestCompletedLeadCheckpoint = useMemo(() => {
-    return leadCheckpoints.find(({ session, activity }) => (
-      activity.command.trim()
-      && activity.output.trim()
-      && detectPromptReady(activity.output, session.shellType)
-    )) ?? null;
-  }, [leadCheckpoints]);
-
-  const latestRunningLeadCheckpoint = useMemo(() => {
-    return leadCheckpoints.find(({ session, activity }) => (
-      activity.command.trim()
-      && !detectPromptReady(activity.output, session.shellType)
-    )) ?? null;
-  }, [leadCheckpoints]);
-
-  // AI Lead disabled — no background thinking label
-  const leadBackgroundLabel = null as string | null;
-
-  // AI Lead analysis disabled — using simple assistant model instead.
-  // The handleCommandComplete callback in the terminal handles proactive analysis.
-  useEffect(() => {
-    if (true) return; // eslint-disable-line no-constant-condition
-    if (!hasApiKey || !context.primaryTarget || !latestCompletedLeadCheckpoint) {
-      setLeadThinkingLabel(null);
-      return;
-    }
-
-    const { session, activity } = latestCompletedLeadCheckpoint;
-    const signature = `${activity.id}:${activity.updatedAt}`;
-    if (analyzedLeadSignaturesRef.current.has(signature)) {
-      setLeadThinkingLabel(null);
-      return;
-    }
-
-    if (leadTaskRunningRef.current) {
-      setLeadThinkingLabel(`Lead Mode analyzing ${activity.command.trim().slice(0, 64)}...`);
-      return;
-    }
-
-    setLeadThinkingLabel(`Lead Mode analyzing ${activity.command.trim().slice(0, 64)}...`);
-
-    const timer = window.setTimeout(async () => {
-      if (leadTaskRunningRef.current) {
-        return;
-      }
-
-      leadTaskRunningRef.current = true;
-      try {
-        const activeNotebook = activeNotebookId
-          ? notes.find((note) => note.id === activeNotebookId) ?? null
-          : null;
-
-        const leadUserPrompt = buildLeadUserPrompt({
-          context,
-          missionMode,
-          findings,
-          notes,
-          activeNotebookId,
-          workspacePath: currentWorkspacePath,
-          workspaceIntel: workspaceIntel.summaryText,
-          commandHistory: recentCommandHistoryContext,
-          session,
-          activity,
-          notebookContent: activeNotebook?.content,
-        });
-
-        const raw = await runBackgroundTask(
-          leadUserPrompt,
-          context,
-          notes,
-          {
-            systemPromptOverride: buildLeadSystemPrompt(),
-          }
-        );
-
-        if (!raw) {
-          return;
-        }
-
-        analyzedLeadSignaturesRef.current.add(signature);
-        let parsed = parseLeadAnalysis(raw);
-        if (!parsed) {
-          appendMessage(
-            'assistant',
-            `Lead Mode saw the latest output for \`${activity.command.trim()}\`, but I failed to structure the follow-up cleanly. Ask "what changed?" or "what next?" and I'll re-evaluate it.`,
-            'warning',
-            undefined,
-            false
-          );
-          return;
-        }
-
-        const commandComplexityIssue = parsed.nextCommand
-          ? getLeadCommandComplexityIssue(parsed.nextCommand)
-          : null;
-
-        if (commandComplexityIssue) {
-          const simplifiedRaw = await runBackgroundTask(
-            buildLeadSimplificationPrompt({
-              originalPrompt: leadUserPrompt,
-              rejectedCommand: parsed.nextCommand,
-              issue: commandComplexityIssue,
-            }),
-            context,
-            notes,
-            {
-              systemPromptOverride: buildLeadSystemPrompt(),
-            }
-          );
-
-          const simplified = simplifiedRaw ? parseLeadAnalysis(simplifiedRaw) : null;
-          if (simplified) {
-            parsed = simplified;
-          }
-        }
-
-        const finalCommandComplexityIssue = parsed.nextCommand
-          ? getLeadCommandComplexityIssue(parsed.nextCommand)
-          : null;
-
-        if (finalCommandComplexityIssue) {
-          appendMessage(
-            'assistant',
-            `Lead Mode held back a too-complex next step after \`${activity.command.trim()}\`. Ask "give me the simplest next command" and I'll keep it shorter and clearer.`,
-            'warning',
-            undefined,
-            false
-          );
-          parsed = {
-            ...parsed,
-            messageMarkdown: `Latest checkpoint captured for \`${activity.command.trim()}\`. Lead Mode is withholding an over-complicated next step and waiting for a simpler operator-friendly command.`,
-            nextCommand: '',
-          } as typeof parsed;
-        }
-
-        if (parsed.notebookEntry) {
-          await saveCanonicalNotebookUpdate(
-            parsed.notebookSection,
-            parsed.notebookEntry,
-            parsed.nextStep || undefined
-          );
-        }
-
-        if (!parsed.shouldRespond || !parsed.messageMarkdown.trim()) {
-          return;
-        }
-
-        appendMessage(
-          'assistant',
-          parsed.messageMarkdown,
-          'lead',
-          parsed.nextCommand
-            ? [{
-                id: `lead-next-${activity.id}`,
-                label: 'Run next command',
-                type: 'run_command',
-                payload: parsed.nextCommand,
-              }]
-            : undefined,
-          false
-        );
-        setShowAI(true);
-      } finally {
-        leadTaskRunningRef.current = false;
-        setLeadThinkingLabel(null);
-      }
-    }, 500);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [
-    activeNotebookId,
-    appendMessage,
-    context,
-    currentWorkspacePath,
-    findings,
-    hasApiKey,
-    latestCompletedLeadCheckpoint,
-    missionMode,
-    notes,
-    recentCommandHistoryContext,
-    runBackgroundTask,
-    saveCanonicalNotebookUpdate,
-    workspaceIntel.summaryText,
-  ]);
-
-  const pendingRawUserNote = useMemo(() => {
-    return notes
-      .filter((note) => note.id !== activeNotebookId && note.source !== 'ai')
-      .slice()
-      .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))
-      .find((note) => !processedUserNoteIdsRef.current.has(`${note.id}:${note.updatedAt}`)) ?? null;
-  }, [activeNotebookId, notes]);
-
-  // Notebook scribe disabled — notes are saved as-is without AI rewriting
-  useEffect(() => {
-    if (true) return; // eslint-disable-line no-constant-condition
-    if (!hasApiKey || !context.primaryTarget || !pendingRawUserNote) {
-      return;
-    }
-
-    const signature = `${pendingRawUserNote.id}:${pendingRawUserNote.updatedAt}`;
-    if (processedUserNoteIdsRef.current.has(signature) || notebookScribeRunningRef.current) {
-      return;
-    }
-
-    const timer = window.setTimeout(async () => {
-      if (notebookScribeRunningRef.current) {
-        return;
-      }
-
-      notebookScribeRunningRef.current = true;
-      try {
-        const activeNotebook = activeNotebookId
-          ? notes.find((note) => note.id === activeNotebookId) ?? null
-          : null;
-
-        const raw = await runBackgroundTask(
-          buildNotebookScribeUserPrompt({
-            note: pendingRawUserNote,
-            context,
-            missionMode,
-            findings,
-            notebookContent: activeNotebook?.content,
-          }),
-          context,
-          notes,
-          {
-            systemPromptOverride: buildNotebookScribeSystemPrompt(),
-          }
-        );
-
-        if (!raw) {
-          return;
-        }
-
-        processedUserNoteIdsRef.current.add(signature);
-        const parsed = parseNotebookScribeResult(raw);
-        if (!parsed || !parsed.notebookEntry) {
-          return;
-        }
-
-        await saveCanonicalNotebookUpdate(
-          parsed.notebookSection,
-          parsed.notebookEntry,
-          parsed.nextStep || undefined
-        );
-      } finally {
-        notebookScribeRunningRef.current = false;
-      }
-    }, 900);
-
-    return () => window.clearTimeout(timer);
-  }, [
-    activeNotebookId,
-    context,
-    findings,
-    hasApiKey,
-    pendingRawUserNote,
-    missionMode,
-    notes,
-    runBackgroundTask,
-    saveCanonicalNotebookUpdate,
-  ]);
-
   const handleSearchChange = useCallback((query: string) => {
     searchNotes(query);
   }, [searchNotes]);
@@ -2341,7 +2044,6 @@ const App: React.FC = () => {
           <AIPanel
             messages={messages}
             isThinking={isThinking}
-            backgroundThinking={leadBackgroundLabel ? { active: true, label: leadBackgroundLabel } : undefined}
             hasApiKey={hasApiKey}
             onSendMessage={handleAISendMessage}
             onSaveToNotes={handleSaveToNotes}
@@ -2365,7 +2067,6 @@ const App: React.FC = () => {
         findingCount={findings.length}
         isAIActive={hasApiKey}
         isThinking={isThinking}
-        backgroundThinkingLabel={leadBackgroundLabel}
       />
 
       {showApiKeyModal && (

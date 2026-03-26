@@ -182,8 +182,6 @@ export function useAI(): UseAIReturn {
 
   const getGuidancePriority = useCallback((variant: AIMessage['variant']) => {
     switch (variant) {
-      case 'lead':
-        return 3;
       case 'proactive':
         return 2;
       case 'suggestion':

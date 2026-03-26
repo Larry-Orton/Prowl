@@ -99,7 +99,7 @@ export interface ActiveContext {
 export interface AIMessage {
   id: string;
   role: 'user' | 'assistant';
-  variant?: 'chat' | 'proactive' | 'warning' | 'suggestion' | 'lead';
+  variant?: 'chat' | 'proactive' | 'warning' | 'suggestion';
   content: string;
   timestamp: string;
   actions?: AIMessageAction[];

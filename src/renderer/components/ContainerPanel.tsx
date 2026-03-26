@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { ContainerStatus, ContainerRuntime } from '@shared/types';
 import { useProactiveEventStore } from '../store/proactiveEventStore';
 
@@ -15,12 +15,15 @@ const ContainerPanel: React.FC<ContainerPanelProps> = ({ onClose }) => {
   const [buildLog, setBuildLog] = useState<string[]>([]);
   const [isBuilding, setIsBuilding] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
+  const busyRef = useRef(false);
 
   const refresh = useCallback(async () => {
+    if (busyRef.current) return;
     const rt = await window.electronAPI.container.detectRuntime();
     setRuntime(rt);
     const st = await window.electronAPI.container.getStatus();
-    setStatus(st);
+    if (!busyRef.current) setStatus(st);
   }, []);
 
   useEffect(() => {
@@ -60,7 +63,18 @@ const ContainerPanel: React.FC<ContainerPanelProps> = ({ onClose }) => {
   }, [emitEvent, refresh]);
 
   const handleStop = useCallback(async () => {
-    await window.electronAPI.container.stop();
+    busyRef.current = true;
+    setIsStopping(true);
+    setStatus('stopped');
+    try {
+      await window.electronAPI.container.stop();
+    } catch {
+      // ignore
+    }
+    setIsStopping(false);
+    // Small delay to let Docker finish cleanup before refreshing
+    await new Promise(r => setTimeout(r, 2000));
+    busyRef.current = false;
     await refresh();
   }, [refresh]);
 
@@ -125,8 +139,8 @@ const ContainerPanel: React.FC<ContainerPanelProps> = ({ onClose }) => {
                 <div className="cp-status-row">
                   <span className="cp-dot ready" />
                   <span>Running</span>
-                  <button className="btn-secondary" onClick={handleStop} style={{ marginLeft: 'auto', padding: '4px 12px', fontSize: 11 }}>
-                    Stop
+                  <button className="btn-secondary" onClick={handleStop} disabled={isStopping} style={{ marginLeft: 'auto', padding: '4px 12px', fontSize: 11 }}>
+                    {isStopping ? 'Stopping...' : 'Stop'}
                   </button>
                 </div>
                 <div className="cp-update-banner">
