@@ -222,7 +222,13 @@ class ContainerManager {
   }
 
   async disconnectVPN(): Promise<void> {
-    await this.execCommand('killall openvpn 2>/dev/null || true');
+    // Kill all openvpn processes aggressively (SIGKILL for zombies)
+    await this.execCommand(
+      'killall -9 openvpn 2>/dev/null; ' +
+      'pkill -9 -f openvpn 2>/dev/null; ' +
+      'rm -f /tmp/vpn.log; ' +
+      'true'
+    );
   }
 
   async getVPNStatus(): Promise<{ connected: boolean; ip?: string; file?: string }> {

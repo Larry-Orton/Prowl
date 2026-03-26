@@ -360,6 +360,14 @@ ipcMain.handle('vpn:listFiles', async () => {
   return containerManager.listVPNFiles(vpnDir);
 });
 
+ipcMain.handle('vpn:deleteFile', async (_, filename: string) => {
+  const vpnDir = containerManager.getVPNDir();
+  const filePath = path.join(vpnDir, filename);
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+  }
+});
+
 ipcMain.handle('vpn:selectFile', async () => {
   if (!mainWindow) return null;
   const result = await dialog.showOpenDialog(mainWindow, {

@@ -72,6 +72,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     upload: (filePath: string) => ipcRenderer.invoke('vpn:upload', filePath),
     connect: (filename: string) => ipcRenderer.invoke('vpn:connect', filename),
     disconnect: () => ipcRenderer.invoke('vpn:disconnect'),
+    deleteFile: (filename: string) => ipcRenderer.invoke('vpn:deleteFile', filename),
     getStatus: () => ipcRenderer.invoke('vpn:getStatus'),
     listFiles: () => ipcRenderer.invoke('vpn:listFiles'),
     selectFile: () => ipcRenderer.invoke('vpn:selectFile'),

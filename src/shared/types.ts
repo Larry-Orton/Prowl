@@ -230,6 +230,7 @@ export interface ElectronVPNAPI {
   upload: (filePath: string) => Promise<string>;
   connect: (filename: string) => Promise<string>;
   disconnect: () => Promise<void>;
+  deleteFile: (filename: string) => Promise<void>;
   getStatus: () => Promise<VPNStatus>;
   listFiles: () => Promise<string[]>;
   selectFile: () => Promise<string | null>;
