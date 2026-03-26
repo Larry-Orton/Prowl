@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { ContainerStatus, VPNStatus } from '@shared/types';
 import { useProactiveEventStore } from '../store/proactiveEventStore';
 
@@ -13,13 +13,16 @@ const VPNPanel: React.FC<VPNPanelProps> = ({ onClose }) => {
   const [vpnFiles, setVpnFiles] = useState<string[]>([]);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const busyRef = useRef(false);
 
   const refresh = useCallback(async () => {
+    // Don't refresh VPN status while connecting/disconnecting
+    if (busyRef.current) return;
     const st = await window.electronAPI.container.getStatus();
     setContainerStatus(st);
     if (st === 'running' || st === 'update_available') {
       const vs = await window.electronAPI.vpn.getStatus();
-      setVpnStatus(vs);
+      if (!busyRef.current) setVpnStatus(vs);
       const files = await window.electronAPI.vpn.listFiles();
       setVpnFiles(files);
     }
@@ -32,32 +35,45 @@ const VPNPanel: React.FC<VPNPanelProps> = ({ onClose }) => {
   }, [refresh]);
 
   const handleConnect = useCallback(async (filename: string) => {
+    busyRef.current = true;
     setIsConnecting(true);
+    setVpnStatus({ connected: false });
     try {
       // If already connected, disconnect first
       if (vpnStatus.connected) {
         await window.electronAPI.vpn.disconnect();
         await new Promise(r => setTimeout(r, 3000));
       }
-      await window.electronAPI.vpn.connect(filename);
-      // Poll for connection (openvpn takes a few seconds)
-      for (let i = 0; i < 5; i++) {
-        await new Promise(r => setTimeout(r, 2000));
+      const result = await window.electronAPI.vpn.connect(filename);
+      // The connect command waits ~10s internally and returns "connected" or error
+      if (result.includes('connected')) {
         const vs = await window.electronAPI.vpn.getStatus();
         setVpnStatus(vs);
         if (vs.connected) {
           emitEvent({ type: 'vpn_connected', ip: vs.ip });
-          break;
+        }
+      } else {
+        // Connection failed, poll a few more times in case it's slow
+        for (let i = 0; i < 3; i++) {
+          await new Promise(r => setTimeout(r, 3000));
+          const vs = await window.electronAPI.vpn.getStatus();
+          setVpnStatus(vs);
+          if (vs.connected) {
+            emitEvent({ type: 'vpn_connected', ip: vs.ip });
+            break;
+          }
         }
       }
     } catch {
       // ignore
     } finally {
       setIsConnecting(false);
+      busyRef.current = false;
     }
   }, [vpnStatus.connected, emitEvent]);
 
   const handleDisconnect = useCallback(async () => {
+    busyRef.current = true;
     setIsDisconnecting(true);
     try {
       await window.electronAPI.vpn.disconnect();
@@ -72,11 +88,11 @@ const VPNPanel: React.FC<VPNPanelProps> = ({ onClose }) => {
       // ignore
     } finally {
       setIsDisconnecting(false);
+      busyRef.current = false;
     }
   }, []);
 
   const handleDelete = useCallback(async (filename: string) => {
-    // If this file is the active VPN, disconnect first
     if (vpnStatus.connected && vpnStatus.file === filename) {
       await handleDisconnect();
     }
@@ -120,10 +136,10 @@ const VPNPanel: React.FC<VPNPanelProps> = ({ onClose }) => {
               <div className="cp-section">
                 <div className="cp-label">Status</div>
                 <div className="cp-status-row">
-                  <span className={`cp-dot ${vpnStatus.connected ? 'ready' : 'off'}`} />
+                  <span className={`cp-dot ${isConnecting ? 'building' : vpnStatus.connected ? 'ready' : 'off'}`} />
                   <span>
                     {isConnecting
-                      ? 'Connecting...'
+                      ? 'Connecting... (this takes ~15 seconds)'
                       : isDisconnecting
                         ? 'Disconnecting...'
                         : vpnStatus.connected
