@@ -65,8 +65,6 @@ export function useTerminal({
   const lastCommandRef = useRef('');
   const commandStartRowRef = useRef(-1);
   const inputEscapeStateRef = useRef<'none' | 'esc' | 'csi' | 'ss3'>('none');
-  const forwardedEscapeStateRef = useRef<'none' | 'esc' | 'csi' | 'ss3'>('none');
-  const forwardedEscapeBufferRef = useRef('');
 
   const parseAndUpdateFromOutput = useSessionStore(s => s.parseAndUpdateFromOutput);
   const recordTerminalOutput = useSessionStore(s => s.recordTerminalOutput);
@@ -154,80 +152,13 @@ export function useTerminal({
     inputEscapeStateRef.current = escapeState;
   }, [_onCommandRun]);
 
-  const sanitizeForwardedInput = useCallback((data: string) => {
-    let sanitized = '';
-    let escapeState = forwardedEscapeStateRef.current;
-    let escapeBuffer = forwardedEscapeBufferRef.current;
-
-    for (let i = 0; i < data.length; i++) {
-      const ch = data[i];
-      const code = ch.charCodeAt(0);
-
-      if (escapeState === 'none') {
-        if (ch === '\x1b') {
-          escapeState = 'esc';
-          escapeBuffer = ch;
-        } else {
-          sanitized += ch;
-        }
-        continue;
-      }
-
-      if (escapeState === 'esc') {
-        escapeBuffer += ch;
-
-        if (ch === '[') {
-          escapeState = 'csi';
-          continue;
-        }
-
-        if (ch === 'O') {
-          escapeState = 'ss3';
-          continue;
-        }
-
-        sanitized += escapeBuffer;
-        escapeState = 'none';
-        escapeBuffer = '';
-        continue;
-      }
-
-      if (escapeState === 'csi') {
-        escapeBuffer += ch;
-
-        if (code >= 64 && code <= 126) {
-          if (escapeBuffer !== '\x1b[I' && escapeBuffer !== '\x1b[O') {
-            sanitized += escapeBuffer;
-          }
-          escapeState = 'none';
-          escapeBuffer = '';
-        }
-        continue;
-      }
-
-      escapeBuffer += ch;
-      sanitized += escapeBuffer;
-      escapeState = 'none';
-      escapeBuffer = '';
-    }
-
-    forwardedEscapeStateRef.current = escapeState;
-    forwardedEscapeBufferRef.current = escapeBuffer;
-
-    return sanitized;
-  }, []);
-
   const prefillTerminalInput = useCallback((text: string) => {
-    const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const normalized = text.replace(/\r\n/g, '\r').replace(/\n/g, '\r');
     if (!normalized) {
       return;
     }
-
-    // Use bracketed paste so readline/zsh treat long commands as one literal paste
-    // instead of a burst of keystrokes that can redraw poorly.
-    const bracketedPaste = `\x1b[200~${normalized}\x1b[201~`;
     trackInputData(normalized);
-    window.electronAPI.shell.write(tabId, bracketedPaste);
+    window.electronAPI.shell.write(tabId, normalized);
     termRef.current?.focus();
   }, [tabId, trackInputData]);
 
@@ -235,8 +166,6 @@ export function useTerminal({
     if (!containerRef.current) return;
     inputBufferRef.current = '';
     inputEscapeStateRef.current = 'none';
-    forwardedEscapeStateRef.current = 'none';
-    forwardedEscapeBufferRef.current = '';
 
     const term = new Terminal({
       theme: currentTheme.terminal,
@@ -440,15 +369,11 @@ export function useTerminal({
     });
 
     // ── User Input Handler ────────────────────────
-    // Mirror the shell manager's line buffer locally so we can learn from
-    // operator-entered commands without waiting on a separate IPC event.
+    // Forward all input to main process shell manager which handles keyword
+    // detection and PTY writes. Track input locally for command history.
     const dataDisposable = term.onData((data: string) => {
-      const sanitized = sanitizeForwardedInput(data);
-      if (!sanitized) {
-        return;
-      }
-      trackInputData(sanitized);
-      window.electronAPI.shell.write(tabId, sanitized);
+      trackInputData(data);
+      window.electronAPI.shell.write(tabId, data);
     });
 
     cleanupRef.current.push(() => dataDisposable.dispose());

@@ -122,6 +122,13 @@ code {
 .traffic-maximize { background: #28c840; }
 
 /* Brand */
+.titlebar-drag-spacer {
+  flex: 1;
+  min-width: 20px;
+  height: 100%;
+  -webkit-app-region: drag;
+}
+
 .titlebar-brand {
   display: flex;
   align-items: center;
@@ -176,6 +183,19 @@ code {
   border: 1px solid transparent;
   transition: all var(--transition);
   white-space: nowrap;
+  -webkit-app-region: no-drag;
+}
+.tab-label-edit {
+  background: var(--bg2);
+  color: var(--text1);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 4px;
+  width: 80px;
+  outline: none;
+  font-family: inherit;
   -webkit-app-region: no-drag;
 }
 .tab-item:hover { color: var(--text2); background: var(--bg2); }
@@ -308,6 +328,7 @@ code {
   flex-direction: column;
   overflow: hidden;
   transition: width 0.2s ease, min-width 0.2s ease, opacity 0.2s ease;
+  user-select: text;
 }
 .notes-panel.collapsed { width: 0; min-width: 0; opacity: 0; }
 
@@ -1195,6 +1216,8 @@ code {
   max-width: 100%;
   word-break: break-word;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+  user-select: text;
+  cursor: text;
 }
 
 .ai-msg.user .ai-msg-content {

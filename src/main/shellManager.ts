@@ -13,7 +13,6 @@ interface ShellInstance {
 class ShellManager {
   private shells: Map<string, ShellInstance> = new Map();
   private lineBuffers: Map<string, string> = new Map();
-  private escapeStates: Map<string, 'none' | 'esc' | 'csi' | 'ss3'> = new Map();
 
   private getShellPath(): string {
     switch (process.platform) {
@@ -84,7 +83,6 @@ class ShellManager {
       }
       this.shells.delete(id);
       this.lineBuffers.delete(id);
-      this.escapeStates.delete(id);
     });
 
     this.shells.set(id, { pty: ptyProcess, webContents, type });
@@ -94,83 +92,80 @@ class ShellManager {
     const shell = this.shells.get(id);
     if (!shell) return;
 
+    // Check if data contains Enter (\r)
+    const enterIdx = data.indexOf('\r');
+
+    if (enterIdx === -1) {
+      // No Enter — forward entire data to PTY in one write (preserves escape sequences)
+      shell.pty.write(data);
+      this.updateLineBuffer(id, data);
+      return;
+    }
+
+    // Data contains Enter — check line buffer for keyword
+    const beforeEnter = data.substring(0, enterIdx);
+    this.updateLineBuffer(id, beforeEnter);
+
+    const buf = this.lineBuffers.get(id) || '';
+    const action = parseKeywordCommand(buf);
+
+    if (action) {
+      // Keyword detected — send everything before Enter, then clear line
+      if (beforeEnter) shell.pty.write(beforeEnter);
+      shell.pty.write('\x15'); // Ctrl+U to clear the typed text
+      if (!shell.webContents.isDestroyed()) {
+        shell.webContents.send('prowl:keyword-action', id, action);
+      }
+      this.lineBuffers.set(id, '');
+    } else {
+      // Not a keyword — forward everything including Enter
+      shell.pty.write(data.substring(0, enterIdx + 1));
+      this.lineBuffers.set(id, '');
+    }
+
+    // Process anything after the Enter (e.g. pasted text with multiple lines)
+    const afterEnter = data.substring(enterIdx + 1);
+    if (afterEnter) {
+      this.write(id, afterEnter);
+    }
+  }
+
+  private updateLineBuffer(id: string, data: string): void {
     let buf = this.lineBuffers.get(id) || '';
-    let escapeState = this.escapeStates.get(id) || 'none';
 
     for (let i = 0; i < data.length; i++) {
       const ch = data[i];
       const code = ch.charCodeAt(0);
 
-      if (escapeState === 'esc') {
-        shell.pty.write(ch);
-        if (ch === '[') {
-          escapeState = 'csi';
-        } else if (ch === 'O') {
-          escapeState = 'ss3';
-        } else {
-          escapeState = 'none';
-        }
-        continue;
-      }
-
-      if (escapeState === 'csi') {
-        shell.pty.write(ch);
-        if (code >= 64 && code <= 126) {
-          escapeState = 'none';
-        }
-        continue;
-      }
-
-      if (escapeState === 'ss3') {
-        shell.pty.write(ch);
-        escapeState = 'none';
-        continue;
-      }
-
-      if (ch === '\r') {
-        // Enter pressed — check for keyword
-        const action = parseKeywordCommand(buf);
-        if (action) {
-          // Clear the current line without emitting a visible ^C.
-          shell.pty.write('\x15');
-          if (!shell.webContents.isDestroyed()) {
-            shell.webContents.send('prowl:keyword-action', id, action);
-          }
-          buf = '';
-          escapeState = 'none';
-        } else {
-          // Normal command — send Enter
-          shell.pty.write('\r');
-          buf = '';
-        }
-      } else if (ch === '\x7f') {
-        // Backspace
+      if (ch === '\x7f') {
         buf = buf.slice(0, -1);
-        shell.pty.write(ch);
-      } else if (ch === '\x03') {
-        // Ctrl+C
+      } else if (ch === '\x03' || ch === '\x15') {
         buf = '';
-        shell.pty.write(ch);
-      } else if (ch === '\x15') {
-        // Ctrl+U
-        buf = '';
-        shell.pty.write(ch);
       } else if (ch === '\x1b') {
-        escapeState = 'esc';
-        shell.pty.write(ch);
+        // Skip escape sequences — don't add to buffer
+        // Find end of sequence
+        if (i + 1 < data.length) {
+          const next = data[i + 1];
+          if (next === '[') {
+            // CSI sequence — skip until terminator (64-126)
+            i += 2;
+            while (i < data.length && !(data.charCodeAt(i) >= 64 && data.charCodeAt(i) <= 126)) {
+              i++;
+            }
+          } else if (next === 'O') {
+            // SS3 — skip one more char
+            i += 2;
+          } else {
+            i += 1;
+          }
+        }
       } else if (code >= 32 && code < 127) {
-        // Printable ASCII — track in buffer
         buf += ch;
-        shell.pty.write(ch);
-      } else {
-        // Everything else (escape sequences, control chars, unicode)
-        // Pass through without modifying buffer
-        shell.pty.write(ch);
       }
+      // Ignore all other control characters
     }
 
     this.lineBuffers.set(id, buf);
-    this.escapeStates.set(id, escapeState);
   }
 
   resize(id: string, cols: number, rows: number): void {
@@ -194,7 +189,6 @@ class ShellManager {
       }
       this.shells.delete(id);
       this.lineBuffers.delete(id);
-      this.escapeStates.delete(id);
     }
   }
 

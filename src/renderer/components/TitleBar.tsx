@@ -64,7 +64,7 @@ const TitleBar: React.FC<TitleBarProps> = ({
   onOpenTimelineBrowser,
   onOpenTimelineNote,
 }) => {
-  const { tabs, activeTabId, addTab, removeTab, setActiveTab } = useTerminalStore();
+  const { tabs, activeTabId, addTab, removeTab, setActiveTab, renameTab } = useTerminalStore();
   const allNotes = useNotesStore(s => s.notes);
   const activeNotebookId = useNotesStore(s => s.activeNotebookId);
   const findings = useFindingsStore(s => s.findings);
@@ -76,6 +76,9 @@ const TitleBar: React.FC<TitleBarProps> = ({
   const [showFindings, setShowFindings] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
   const [showNewTabMenu, setShowNewTabMenu] = useState(false);
+  const [editingTabId, setEditingTabId] = useState<string | null>(null);
+  const [editingTabValue, setEditingTabValue] = useState('');
+  const editInputRef = useRef<HTMLInputElement>(null);
   const [containerStatus, setContainerStatus] = useState<ContainerStatus>('not_installed');
   const [vpnStatus, setVpnStatus] = useState<VPNStatus>({ connected: false });
   const newTabMenuRef = useRef<HTMLDivElement>(null);
@@ -155,6 +158,14 @@ const TitleBar: React.FC<TitleBarProps> = ({
     if (tabs.length > 1) removeTab(id);
   }, [tabs.length, removeTab]);
 
+  // Focus and select text when editing a tab
+  useEffect(() => {
+    if (editingTabId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingTabId]);
+
   // Drag is handled natively by -webkit-app-region: drag in CSS.
   // Double-click titlebar to maximize/restore.
   const handleTitlebarDoubleClick = useCallback(() => {
@@ -185,7 +196,40 @@ const TitleBar: React.FC<TitleBarProps> = ({
               <span className={`tab-index ${tab.shellType === 'kali' ? 'kali' : ''}`}>
                 {tab.shellType === 'kali' ? 'K' : (i + 1)}
               </span>
-              <span className="tab-label">{tab.title}</span>
+              {editingTabId === tab.id ? (
+                <input
+                  ref={editInputRef}
+                  className="tab-label-edit"
+                  value={editingTabValue}
+                  onChange={(e) => setEditingTabValue(e.target.value)}
+                  onBlur={() => {
+                    const trimmed = editingTabValue.trim();
+                    if (trimmed) renameTab(tab.id, trimmed);
+                    setEditingTabId(null);
+                  }}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === 'Enter') {
+                      const trimmed = editingTabValue.trim();
+                      if (trimmed) renameTab(tab.id, trimmed);
+                      setEditingTabId(null);
+                    } else if (e.key === 'Escape') {
+                      setEditingTabId(null);
+                    }
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  autoFocus
+                />
+              ) : (
+                <span
+                  className="tab-label"
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setEditingTabId(tab.id);
+                    setEditingTabValue(tab.title);
+                  }}
+                >{tab.title}</span>
+              )}
               {tabs.length > 1 && (
                 <button className="tab-close" onClick={(e) => handleTabClose(tab.id, e)} title="Close tab">×</button>
               )}
@@ -225,6 +269,9 @@ const TitleBar: React.FC<TitleBarProps> = ({
             )}
           </div>
         </div>
+
+        {/* Drag spacer — this is the area users grab to move the window */}
+        <div className="titlebar-drag-spacer" />
 
         <div className="titlebar-right">
           {/* VPN indicator */}
