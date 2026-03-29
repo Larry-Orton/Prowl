@@ -5,11 +5,11 @@
 <h1 align="center">PROWL</h1>
 
 <p align="center">
-  <strong>The pentest terminal that refuses to act like "just a terminal."</strong>
+  <strong>A terminal emulator built for pentesters.</strong>
 </p>
 
 <p align="center">
-  Local shell. Kali container. Embedded browser. Smart notes. Structured findings. Mission timeline. Proactive AI.
+  Local shell. Kali container. AI assistant. VPN management. Notes. Findings tracker. All in one window.
 </p>
 
 <p align="center">
@@ -20,33 +20,34 @@
 
 ## What PROWL Actually Is
 
-PROWL is an Electron desktop app for pentesters and security operators who are tired of working across fourteen windows, six sticky notes, three browser tabs, and one terminal session that absolutely should not still be alive but somehow is.
+PROWL is a terminal emulator built for pentesting. Instead of juggling separate windows for your terminal, notes, and browser, everything lives in one app.
 
-It gives you one cockpit for:
+It gives you:
 
-- running local or Kali-backed terminals
-- tracking an engagement instead of a random pile of commands
-- collecting findings, notes, loot, and browser recon in one place
-- getting AI help that can react to what is happening, not just what you type
+- local and Kali container terminals (with split view)
+- VPN management — upload and connect .ovpn files
+- an AI assistant you can ask questions and send command output to
+- notes and notebooks for tracking what you find
+- a findings tracker for targets, ports, services, and vulnerabilities
+- an embedded browser routed through your VPN
+- engagement system to keep projects separate
+- a loot manager for workspace files
 
-This means PROWL is not trying to replace your workflow. It is trying to stop your workflow from becoming a crime scene.
+## Features
 
-## Why It Feels Different
-
-Most terminal tools do one thing well.
-PROWL is built around the whole mission.
-
-| Surface | What it does |
+| Feature | What it does |
 | --- | --- |
-| **Engagements** | Separate targets, notes, command history, findings, and loot by project |
-| **Proactive AI** | Suggests next moves when targets, ports, services, browser scans, VPN, or loot change |
-| **Findings** | Captures structured discoveries like targets, ports, services, and files |
-| **Mission Timeline** | Shows what happened, in order, across commands, notes, findings, AI, and events |
-| **Loot Manager** | Browses `/workspace` artifacts, previews files, promotes loot into findings, and saves notes |
-| **Mission Modes** | Keeps the app focused on web, windows, internal, exploit, credential, DNS, or recon workflows |
-| **Split Terminals** | Work side-by-side instead of pretending you only need one shell |
-| **Command Palette** | Jump to panels, tabs, engagements, and common actions with `Ctrl/Cmd+K` |
-| **Browser + VPN** | Explore web targets through the Kali network path without leaving the app |
+| **Multi-tab terminals** | Local shell and Kali container tabs, renameable, with split view |
+| **AI assistant** | Ask questions, send command output for analysis, get help mid-engagement |
+| **VPN management** | Upload .ovpn files, connect/disconnect/switch with one click |
+| **Notes & notebooks** | Quick notes from terminal keywords or the notes panel |
+| **Findings tracker** | Structured discoveries — targets, ports, services, URLs, credentials, vulnerabilities |
+| **Engagements** | Separate targets, notes, findings, and history by project |
+| **Mission timeline** | Chronological feed of commands, notes, findings, and events |
+| **Loot manager** | Browse workspace files, preview, classify, promote to findings |
+| **Embedded browser** | Browse targets through the Kali SOCKS proxy |
+| **Command palette** | `Ctrl/Cmd+K` to jump to anything |
+| **Themes** | Multiple color schemes |
 
 ## What You Need
 
@@ -70,13 +71,12 @@ Grab the latest release from [GitHub Releases](https://github.com/Larry-Orton/Pr
 
 | Platform | Download | Notes |
 | --- | --- | --- |
-| **Windows** | `PROWL-Setup-0.1.0.exe` | NSIS installer, choose your install location |
-| **Windows** | `PROWL-0.1.0-portable.exe` | Portable single exe, no install needed |
-| **Windows** | `PROWL-0.1.0-win-portable.zip` | Portable zip, extract and run `PROWL.exe` |
+| **Windows** | `PROWL-Setup-x.x.x.exe` | Installer — choose your install location |
+| **Windows** | `PROWL-x.x.x-portable.exe` | Portable single exe, no install needed |
 | **macOS** | Coming soon | |
 | **Linux** | Coming soon | |
 
-> **Windows SmartScreen warning**: Because PROWL is not yet code-signed, Windows may show a "Windows protected your PC" warning on first run. Click **"More info"** then **"Run anyway"**. This is expected for open-source apps without a paid signing certificate. PROWL auto-updates after the first install, so you only deal with this once.
+> **Windows SmartScreen / Smart App Control**: Because PROWL is not yet code-signed, Windows may block the installer. For SmartScreen, click **"More info"** then **"Run anyway"**. For Smart App Control, right-click the exe → Properties → check **"Unblock"** → Apply, then run it. This only happens on the first install — PROWL auto-updates after that.
 
 ### Install In About 60 Seconds
 
@@ -92,32 +92,23 @@ That is the path where you do not end up explaining Electron rebuild logs to you
 
 ## First Launch
 
-Here is the fastest way to stop staring at the UI and start using it:
-
 1. Launch PROWL.
-2. Open the AI panel and add your Anthropic API key.
-3. Open the Kali/container panel and build the image (first time only, takes a few minutes).
+2. Open the AI panel and add your Anthropic API key (optional).
+3. Open the Kali panel (dragon icon) and build the image (first time only, takes a few minutes).
 4. Start the Kali container.
-5. Create or select an engagement.
-6. Set your target with `target <ip-or-host>`.
-7. Use `Ctrl/Cmd+K` to open the command palette and jump where you need to go.
-8. Start recon. PROWL will begin building findings, timeline events, notes, and suggestions around what you do.
+5. Upload your .ovpn file in the VPN panel if you're using HackTheBox or TryHackMe.
+6. Set your target: `target <ip>`.
+7. Start hacking. Use `Ctrl/Cmd+K` to open the command palette and jump to anything.
 
-That is the intended flow.
-Not "open five apps and promise yourself you will organize it later."
-
-## Five-Minute Mental Model
-
-If you are new to PROWL, these terms matter:
+## Key Concepts
 
 | Term | Meaning |
 | --- | --- |
-| **Engagement** | The project you are working on. It owns target context, notes, findings, command history, and workspace view |
-| **Finding** | A structured discovery like a target, open port, service, file, URL, or AI-saved note |
-| **Loot** | Files captured in the engagement workspace |
-| **Mission Mode** | PROWL's opinion about what phase you are in: recon, web, windows, internal, exploit, and so on |
-| **Timeline** | A chronological feed of commands, notes, findings, AI messages, and mission events |
-| **Objective Card** | The "what matters right now" summary at the top of the AI panel |
+| **Engagement** | A project (e.g., a specific HTB machine). Keeps notes, findings, and history separate |
+| **Finding** | A structured discovery — target, open port, service, file, URL, or vulnerability |
+| **Loot** | Files in your workspace (scan results, screenshots, scripts) |
+| **Notebook** | A collection of notes for one session or topic |
+| **Timeline** | Chronological feed of everything that happened during the engagement |
 
 ## Terminal Keywords
 
@@ -157,18 +148,15 @@ If you never read title bars and just click whatever looks suspicious, here is t
 
 ## What The AI Can Do
 
-The AI is not just a chat box anymore.
+The AI assistant is there to help during engagements:
 
-It can:
+- Answer questions about tools, techniques, and methodology
+- Analyze command output — click the "Send to Prowl AI" button after any command
+- Help interpret scan results, suggest next steps
+- Search the web for walkthroughs and documentation
+- Create notes and save findings from the conversation
 
-- respond to normal prompts
-- react to target changes, discovered ports, services, browser scans, VPN state, container state, and new loot
-- suggest commands before you ask
-- create notes and save findings
-- open browser or workflow surfaces
-- follow the current mission mode
-
-The intended experience is "operator copiloting," not "tab with opinions."
+You need an Anthropic API key to use the AI features. PROWL works fine without one — you just won't have the chat panel.
 
 ## Kali, Browser, VPN, and Loot
 
