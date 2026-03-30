@@ -1,6 +1,6 @@
 {
   "name": "prowl",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "Intelligent pentester terminal",
   "author": "Larry Orton <orton.larry84@gmail.com>",
   "main": "dist/main/main/index.js",

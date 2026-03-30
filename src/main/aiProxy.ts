@@ -12,7 +12,7 @@ interface APIMessage {
   content: string | any[];
 }
 
-const MAX_TOOL_ROUNDS = 4;
+const MAX_TOOL_ROUNDS = 6;
 
 const WEB_SEARCH_TOOL = {
   name: 'web_search',
@@ -352,6 +352,15 @@ async function runClaudeWithTools(messages: APIMessage[], systemPrompt: string, 
     }
 
     const toolResults = await executeToolBlocks(toolBlocks);
+
+    // On the second-to-last round, tell Claude to wrap up
+    if (round === MAX_TOOL_ROUNDS - 1) {
+      toolResults.push({
+        type: 'text',
+        text: 'IMPORTANT: You have used several tool rounds. Please provide your final answer now based on what you have gathered so far. Do not call any more tools.',
+      });
+    }
+
     conversation.push(
       { role: 'assistant', content },
       { role: 'user', content: toolResults }
