@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getApiKey: () => ipcRenderer.invoke('ai:hasKey'),
     setApiKey: (key: string) => ipcRenderer.invoke('ai:setKey', key),
     deleteApiKey: () => ipcRenderer.invoke('ai:deleteKey'),
+    setModel: (model: string) => ipcRenderer.invoke('ai:setModel', model),
   },
   container: {
     detectRuntime: () => ipcRenderer.invoke('container:detectRuntime'),

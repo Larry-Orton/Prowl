@@ -214,6 +214,7 @@ export interface ElectronAIAPI {
   getApiKey: () => Promise<boolean>;
   setApiKey: (key: string) => Promise<void>;
   deleteApiKey: () => Promise<void>;
+  setModel: (model: string) => Promise<void>;
 }
 
 export interface ElectronContainerAPI {

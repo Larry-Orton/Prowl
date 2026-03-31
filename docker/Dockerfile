@@ -97,6 +97,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ligolo-ng \
     && rm -rf /var/lib/apt/lists/*
 
+# ── Python pip fix ─────────────────────────────
+# Remove externally-managed-environment restriction so pip install works freely.
+# This is a pentesting container, not a production system.
+RUN rm -f /usr/lib/python*/EXTERNALLY-MANAGED
+
 # ── Wordlists setup ────────────────────────────
 RUN gunzip /usr/share/wordlists/rockyou.txt.gz 2>/dev/null || true
 # Symlink common paths so standard tutorials/commands work out of the box

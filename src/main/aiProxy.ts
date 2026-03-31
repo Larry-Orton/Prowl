@@ -7,6 +7,12 @@ import { net } from 'electron';
 import { CLAUDE_MODEL, CLAUDE_MAX_TOKENS, CLAUDE_API_URL } from '../shared/constants';
 import { getApiKey } from '../db/client';
 
+let activeModel: string = CLAUDE_MODEL;
+
+export function setActiveModel(model: string): void {
+  activeModel = model;
+}
+
 interface APIMessage {
   role: string;
   content: string | any[];
@@ -320,7 +326,7 @@ async function runClaudeWithTools(messages: APIMessage[], systemPrompt: string, 
 
   for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
     const body = JSON.stringify({
-      model: CLAUDE_MODEL,
+      model: activeModel,
       max_tokens: CLAUDE_MAX_TOKENS,
       system: systemPrompt,
       messages: conversation,

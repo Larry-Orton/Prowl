@@ -149,7 +149,7 @@ const NotebookViewer: React.FC<NotebookViewerProps> = ({ notebook, notebookTitle
     setIsFlipping(true);
     setFlipDirection(direction);
     const start = performance.now();
-    const duration = 800;
+    const duration = 1400;
 
     const animate = (now: number) => {
       const elapsed = now - start;
@@ -224,85 +224,125 @@ const NotebookViewer: React.FC<NotebookViewerProps> = ({ notebook, notebookTitle
     </div>
   );
 
-  // Flipping page transform
-  const getFlipTransform = (): React.CSSProperties => {
+  // The flipping page container transform
+  const getFlipContainerStyle = (): React.CSSProperties => {
     if (!isFlipping) return { display: 'none' };
 
     const angle = flipDirection === 'forward'
       ? flipProgress * -180
       : -180 + flipProgress * 180;
 
-    // Page curl effect: slight vertical bend during the middle of the flip
     const bend = Math.sin(flipProgress * Math.PI);
-    const scaleY = 1 - bend * 0.02;
-    const translateZ = bend * 30;
-    const skewY = flipDirection === 'forward' ? bend * 2 : -bend * 2;
 
     return {
       position: 'absolute',
       top: 0,
-      [flipDirection === 'forward' ? 'left' : 'right']: '50%',
+      left: flipDirection === 'forward' ? '50%' : 0,
       width: '50%',
       height: '100%',
       transformOrigin: flipDirection === 'forward' ? 'left center' : 'right center',
-      transform: `perspective(2000px) rotateY(${angle}deg) scaleY(${scaleY}) translateZ(${translateZ}px) skewY(${skewY}deg)`,
+      transform: `perspective(1800px) rotateY(${angle}deg)`,
+      transformStyle: 'preserve-3d' as const,
       zIndex: 30,
       pointerEvents: 'none' as const,
-      backfaceVisibility: 'hidden' as const,
       transition: 'none',
+      filter: `drop-shadow(${flipDirection === 'forward' ? '-' : ''}${Math.round(bend * 20)}px 8px ${Math.round(bend * 30)}px rgba(0,0,0,${0.2 + bend * 0.3}))`,
     };
   };
 
-  // Shadow on the page underneath
-  const getUnderpageShadow = (): React.CSSProperties => {
-    if (!isFlipping) return { display: 'none' };
-    const intensity = Math.sin(flipProgress * Math.PI) * 0.5;
-    return {
-      position: 'absolute',
-      top: 0, bottom: 0,
-      width: '50%',
-      [flipDirection === 'forward' ? 'left' : 'right']: flipDirection === 'forward' ? 0 : undefined,
-      left: flipDirection === 'backward' ? '50%' : undefined,
-      background: flipDirection === 'forward'
-        ? `linear-gradient(90deg, transparent 40%, rgba(0,0,0,${intensity}))`
-        : `linear-gradient(270deg, transparent 40%, rgba(0,0,0,${intensity}))`,
-      zIndex: 25,
-      pointerEvents: 'none' as const,
-    };
-  };
-
-  // The visible face of the flipping page
-  const renderFlipFace = () => {
+  // Shadow on the page underneath during flip
+  const renderUnderpageShadow = () => {
     if (!isFlipping) return null;
-    const showBack = flipProgress > 0.5;
-
-    let facePage: PageData | null;
-    if (flipDirection === 'forward') {
-      facePage = showBack
-        ? pages[(currentPage + 1) * 2] ?? null      // next left page (back face)
-        : pages[currentPage * 2 + 1] ?? null;        // current right page (front face)
-    } else {
-      facePage = showBack
-        ? pages[(currentPage - 1) * 2 + 1] ?? null   // prev right page (back face)
-        : pages[currentPage * 2] ?? null;             // current left page (front face)
-    }
-
-    const side = (flipDirection === 'forward')
-      ? (showBack ? 'left' : 'right')
-      : (showBack ? 'right' : 'left');
+    const intensity = Math.sin(flipProgress * Math.PI) * 0.45;
+    const spread = Math.sin(flipProgress * Math.PI) * 30;
 
     return (
-      <div style={getFlipTransform()}>
-        {renderPage(facePage, side)}
-        {/* Page curl highlight */}
+      <div style={{
+        position: 'absolute',
+        top: 0, bottom: 0,
+        width: '50%',
+        left: flipDirection === 'forward' ? 0 : '50%',
+        background: flipDirection === 'forward'
+          ? `linear-gradient(90deg, transparent ${50 - spread}%, rgba(0,0,0,${intensity}))`
+          : `linear-gradient(270deg, transparent ${50 - spread}%, rgba(0,0,0,${intensity}))`,
+        zIndex: 25,
+        pointerEvents: 'none',
+      }} />
+    );
+  };
+
+  // Two-sided flipping page — front and back both visible
+  const renderFlipPage = () => {
+    if (!isFlipping) return null;
+
+    // Front face: the page that's currently visible before the flip
+    // Back face: the page that will be revealed after the flip
+    let frontPage: PageData | null;
+    let backPage: PageData | null;
+    let frontSide: 'left' | 'right';
+    let backSide: 'left' | 'right';
+
+    if (flipDirection === 'forward') {
+      frontPage = pages[currentPage * 2 + 1] ?? null;      // current right page
+      backPage = pages[(currentPage + 1) * 2] ?? null;      // next left page
+      frontSide = 'right';
+      backSide = 'left';
+    } else {
+      frontPage = pages[currentPage * 2] ?? null;            // current left page
+      backPage = pages[(currentPage - 1) * 2 + 1] ?? null;   // prev right page
+      frontSide = 'left';
+      backSide = 'right';
+    }
+
+    const bend = Math.sin(flipProgress * Math.PI);
+
+    return (
+      <div style={getFlipContainerStyle()}>
+        {/* Front face */}
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          backfaceVisibility: 'hidden',
+          overflow: 'hidden',
+          borderRadius: flipDirection === 'forward' ? '0 4px 4px 0' : '4px 0 0 4px',
+        }}>
+          {renderPage(frontPage, frontSide)}
+          {/* Darkening as page turns away */}
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: `rgba(0,0,0,${flipProgress * 0.15})`,
+            pointerEvents: 'none',
+          }} />
+        </div>
+
+        {/* Back face (rotated 180deg so it faces the other way) */}
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          backfaceVisibility: 'hidden',
+          transform: 'rotateY(180deg)',
+          overflow: 'hidden',
+          borderRadius: flipDirection === 'forward' ? '4px 0 0 4px' : '0 4px 4px 0',
+        }}>
+          {renderPage(backPage, backSide)}
+          {/* Slight brightening as page reveals */}
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: `rgba(255,255,255,${(1 - flipProgress) * 0.08})`,
+            pointerEvents: 'none',
+          }} />
+        </div>
+
+        {/* Edge highlight along the spine edge during flip */}
         <div style={{
           position: 'absolute',
           top: 0, bottom: 0,
-          width: '30px',
+          width: '3px',
           [flipDirection === 'forward' ? 'left' : 'right']: 0,
-          background: `linear-gradient(${flipDirection === 'forward' ? '90deg' : '270deg'}, rgba(255,255,255,${Math.sin(flipProgress * Math.PI) * 0.08}), transparent)`,
+          background: `linear-gradient(to bottom, rgba(255,240,200,${bend * 0.2}), rgba(200,180,140,${bend * 0.1}))`,
+          boxShadow: `0 0 ${Math.round(bend * 8)}px rgba(0,0,0,${bend * 0.3})`,
           pointerEvents: 'none',
-          zIndex: 31,
+          zIndex: 2,
         }} />
       </div>
     );
@@ -364,10 +404,10 @@ const NotebookViewer: React.FC<NotebookViewerProps> = ({ notebook, notebookTitle
           </div>
 
           {/* Shadow on underlying page during flip */}
-          <div style={getUnderpageShadow()} />
+          {renderUnderpageShadow()}
 
-          {/* The flipping page */}
-          {renderFlipFace()}
+          {/* The two-sided flipping page */}
+          {renderFlipPage()}
         </div>
 
         <div className="nb-indicator">

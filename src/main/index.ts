@@ -300,6 +300,11 @@ ipcMain.handle('ai:deleteKey', async () => {
   deleteApiKey();
 });
 
+ipcMain.handle('ai:setModel', async (_, model: string) => {
+  const { setActiveModel } = await import('./aiProxy');
+  setActiveModel(model);
+});
+
 // ── Container IPC ──────────────────────────────────
 
 ipcMain.handle('container:detectRuntime', async () => {

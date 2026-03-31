@@ -116,6 +116,12 @@ function getMessageMeta(msg: AIMessage): { label: string; bubbleClass: string } 
   }
 }
 
+const MODEL_OPTIONS = [
+  { id: 'claude-sonnet-4-6', label: 'Sonnet', description: 'Fast & affordable' },
+  { id: 'claude-opus-4-6', label: 'Opus', description: 'Smartest' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Haiku', description: 'Fastest & cheapest' },
+] as const;
+
 const AIPanel: React.FC<AIPanelProps> = ({
   messages,
   isThinking,
@@ -134,9 +140,32 @@ const AIPanel: React.FC<AIPanelProps> = ({
   onClearInitialInput,
 }) => {
   const [inputValue, setInputValue] = useState('');
+  const [selectedModel, setSelectedModel] = useState(() => {
+    return localStorage.getItem('prowl-ai-model') || 'claude-sonnet-4-6';
+  });
+  const [showModelPicker, setShowModelPicker] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const modelPickerRef = useRef<HTMLDivElement>(null);
   const missionMode = useMissionModeStore((s) => s.mode);
+
+  // Save model selection
+  useEffect(() => {
+    localStorage.setItem('prowl-ai-model', selectedModel);
+    window.electronAPI?.ai?.setModel?.(selectedModel);
+  }, [selectedModel]);
+
+  // Close model picker on outside click
+  useEffect(() => {
+    if (!showModelPicker) return;
+    const handler = (e: MouseEvent) => {
+      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target as Node)) {
+        setShowModelPicker(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showModelPicker]);
 
   useEffect(() => {
     if (initialInput) {
@@ -180,7 +209,41 @@ const AIPanel: React.FC<AIPanelProps> = ({
       <div className="ai-header">
         <div className="ai-header-left">
           <span className="ai-title">AI</span>
-          <span className="ai-model-badge">Claude</span>
+          <div style={{ position: 'relative' }} ref={modelPickerRef}>
+            <button
+              className="ai-model-badge"
+              onClick={() => setShowModelPicker(!showModelPicker)}
+              title="Change AI model"
+              style={{ cursor: 'pointer', border: 'none', background: 'var(--bg2)', padding: '2px 8px', borderRadius: 'var(--radius)', fontSize: 10, color: 'var(--text2)' }}
+            >
+              {MODEL_OPTIONS.find(m => m.id === selectedModel)?.label || 'Sonnet'} ▾
+            </button>
+            {showModelPicker && (
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, marginTop: 4,
+                background: 'var(--bg1)', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)', padding: 4, zIndex: 100,
+                boxShadow: '0 8px 24px rgba(0,0,0,0.4)', minWidth: 160,
+              }}>
+                {MODEL_OPTIONS.map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => { setSelectedModel(m.id); setShowModelPicker(false); }}
+                    style={{
+                      display: 'flex', flexDirection: 'column', width: '100%',
+                      padding: '6px 10px', border: 'none', borderRadius: 4,
+                      background: selectedModel === m.id ? 'var(--accent)' : 'transparent',
+                      color: selectedModel === m.id ? 'white' : 'var(--text1)',
+                      cursor: 'pointer', textAlign: 'left',
+                    }}
+                  >
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>{m.label}</span>
+                    <span style={{ fontSize: 10, opacity: 0.7 }}>{m.description}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <span className={`ai-mode-chip ${missionMode.id}`}>
             {missionMode.label}
           </span>
@@ -319,12 +382,12 @@ const AIPanel: React.FC<AIPanelProps> = ({
         <textarea
           ref={inputRef}
           className="ai-textarea"
-          placeholder="Ask what matters, what changed, or what to hit next..."
+          placeholder="Ask a question, paste output, or describe what you need..."
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleKeyDown}
-          rows={1}
-          style={{ height: Math.min(100, Math.max(34, inputValue.split('\n').length * 18 + 16)) }}
+          rows={3}
+          style={{ height: Math.min(180, Math.max(64, inputValue.split('\n').length * 18 + 24)) }}
         />
         <button
           className="ai-send"
