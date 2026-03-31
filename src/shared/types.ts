@@ -253,6 +253,7 @@ export interface WorkspaceFile {
 export interface ElectronWorkspaceAPI {
   listFiles: (dirPath?: string) => Promise<WorkspaceFile[]>;
   readFile: (filePath: string) => Promise<string | null>;
+  writeFile: (filePath: string, content: string) => Promise<boolean>;
   deleteFile: (filePath: string) => Promise<boolean>;
 }
 

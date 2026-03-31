@@ -53,11 +53,57 @@ function formatTerminalActivity(context: ActiveContext): string {
     .join('\n');
 }
 
+async function readTargetMemory(target: string): Promise<string> {
+  if (!target) return '';
+  try {
+    const content = await window.electronAPI.workspace.readFile(`/workspace/${target}/target.md`);
+    return content || '';
+  } catch {
+    return '';
+  }
+}
+
+async function writeTargetMemory(target: string, content: string): Promise<void> {
+  if (!target) return;
+  try {
+    await window.electronAPI.workspace.writeFile(`/workspace/${target}/target.md`, content);
+  } catch {
+    // ignore
+  }
+}
+
+function createInitialTargetMd(target: string): string {
+  const now = new Date().toISOString().split('T')[0];
+  return `# Target: ${target}
+## Status: In Progress
+## Started: ${now}
+
+## Recon
+- (no scans yet)
+
+## Web
+- (not explored yet)
+
+## Credentials
+- (none found)
+
+## Tried & Failed
+- (nothing yet)
+
+## Key Findings
+- (none yet)
+
+## Next Steps
+- Run initial port scan
+`;
+}
+
 function buildSystemPrompt(
   context: ActiveContext,
   notes: Note[],
   missionMode: MissionMode,
-  supplementalContext?: string
+  supplementalContext?: string,
+  targetMemory?: string
 ): string {
   return `You are an expert penetration tester AI assistant embedded inside Prowl, an intelligent pentester terminal application.
 
@@ -107,7 +153,17 @@ The user is working inside a PROWL Kali container (kalilinux/kali-rolling). Alwa
 
 ### Workspace
 The user's workspace is mounted at /workspace. Use this for saving output, scripts, and loot.
+${targetMemory ? `
+## Target Memory (target.md)
+This is the persistent memory file for the current target. It contains everything discovered so far across all sessions.
+IMPORTANT: After your response, if you learned anything new about the target (new ports, services, credentials, failed attempts, key findings), you MUST include a section at the END of your response wrapped in <target-update> tags with the COMPLETE updated target.md content. This is how you remember things across sessions.
 
+Current target.md contents:
+${targetMemory}
+` : `
+## Target Memory
+No target.md exists yet. If the user has set a target, you should suggest they start recon so we can begin building the target memory file.
+`}
 ## Web Tools
 You have two web tools available:
 - web_search: search the web for current results and URLs
@@ -350,6 +406,16 @@ export function useAI(): UseAIReturn {
     setIsThinking(true);
 
     try {
+      // Read target memory file if target is set
+      const target = context.primaryTarget || '';
+      let targetMemory = await readTargetMemory(target);
+
+      // Auto-create target.md if target is set but no file exists
+      if (target && !targetMemory) {
+        targetMemory = createInitialTargetMd(target);
+        await writeTargetMemory(target, targetMemory);
+      }
+
       // Build messages array for API (include last 10 messages for context)
       const recentMsgs = [...messages, userMsg].slice(-10);
       const apiMessages = recentMsgs.map(m => ({
@@ -361,11 +427,21 @@ export function useAI(): UseAIReturn {
         context,
         notes,
         useMissionModeStore.getState().mode,
-        options?.supplementalContext
+        options?.supplementalContext,
+        targetMemory
       );
 
       // Call through main process proxy — API key never touches renderer
-      const assistantContent = await window.electronAPI.ai.send(apiMessages, systemPrompt);
+      let assistantContent = await window.electronAPI.ai.send(apiMessages, systemPrompt);
+
+      // Extract and save target.md updates from AI response
+      const updateMatch = assistantContent.match(/<target-update>([\s\S]*?)<\/target-update>/);
+      if (updateMatch && target) {
+        const updatedMd = updateMatch[1].trim();
+        await writeTargetMemory(target, updatedMd);
+        // Remove the update tags from the displayed message
+        assistantContent = assistantContent.replace(/<target-update>[\s\S]*?<\/target-update>/, '').trim();
+      }
 
       const assistantMsg: AIMessage = {
         id: uuidv4(),

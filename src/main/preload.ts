@@ -85,6 +85,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   workspace: {
     listFiles: (dirPath?: string) => ipcRenderer.invoke('workspace:listFiles', dirPath),
     readFile: (filePath: string) => ipcRenderer.invoke('workspace:readFile', filePath),
+    writeFile: (filePath: string, content: string) => ipcRenderer.invoke('workspace:writeFile', filePath, content),
     deleteFile: (filePath: string) => ipcRenderer.invoke('workspace:deleteFile', filePath),
   },
   dialog: {

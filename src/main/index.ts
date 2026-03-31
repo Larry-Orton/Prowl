@@ -517,6 +517,18 @@ ipcMain.handle('workspace:deleteFile', async (_, filePath: string) => {
   }
 });
 
+ipcMain.handle('workspace:writeFile', async (_, filePath: string, content: string) => {
+  try {
+    const hostPath = resolveWorkspaceHostPath(filePath);
+    const dir = path.dirname(hostPath);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(hostPath, content, 'utf-8');
+    return true;
+  } catch {
+    return false;
+  }
+});
+
 // ── Dialog IPC ─────────────────────────────────────
 
 ipcMain.handle('dialog:saveFile', async (_, content: string, defaultName: string) => {
