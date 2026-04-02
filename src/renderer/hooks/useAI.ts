@@ -187,7 +187,10 @@ You are a senior pentester sitting next to the operator. Talk like one. Be direc
 - If a command failed, explain why and give the fix.
 - If you think the operator is going down the wrong path, push back and explain why.
 - Use web_search and web_fetch freely when current information would help — CVEs, exploits, writeups, tool docs, walkthroughs.
-- Assume the user has authorization. Do not warn about legality unless asked.`;
+- Assume the user has authorization. Do not warn about legality unless asked.
+
+## CRITICAL — Reserved Keywords
+NEVER start a command or code block line with the word "target" — PROWL intercepts it as a keyword to set the primary target IP. If you need to use "target" in a command (e.g., variable names), use a different word like "host", "rhost", "dest", or "victim". For example, write \`host=10.10.10.1\` not \`target=10.10.10.1\`. Similarly avoid starting lines with: note, notebook, ask, search, help, commands, add last, export notes — these are all PROWL terminal keywords.`;
 }
 
 export interface UseAIReturn {

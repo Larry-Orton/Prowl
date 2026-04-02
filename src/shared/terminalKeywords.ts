@@ -22,7 +22,8 @@ export function parseKeywordCommand(line: string): KeywordAction | null {
 
   if (lower.startsWith('target ')) {
     const ip = trimmed.slice(7).trim();
-    if (ip) return { type: 'target', ip };
+    // Only match if it looks like an IP address or hostname (not arbitrary commands)
+    if (ip && /^[\d.:\[\]a-zA-Z][\w.\-:]*$/.test(ip)) return { type: 'target', ip };
   }
   if (lower === 'notebook close' || lower === 'notebook end') {
     return { type: 'notebook_close' };
