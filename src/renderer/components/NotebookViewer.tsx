@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { Note } from '@shared/types';
+import { useSessionStore } from '../store/sessionStore';
 
 interface NotebookViewerProps {
   notebook: Note | null;
@@ -118,15 +119,60 @@ function buildPages(notes: Note[], notebookTitle: string): PageData[] {
 }
 
 const NotebookViewer: React.FC<NotebookViewerProps> = ({ notebook, notebookTitle, allNotes, onClose }) => {
+  const target = useSessionStore(s => s.context.primaryTarget);
+  const [journalContent, setJournalContent] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'journal' | 'notes'>('journal');
+
+  // Load journal.md from workspace
+  useEffect(() => {
+    if (!target) {
+      setJournalContent(null);
+      return;
+    }
+    window.electronAPI.workspace.readFile(`/workspace/${target}/journal.md`)
+      .then(content => setJournalContent(content || null))
+      .catch(() => setJournalContent(null));
+  }, [target]);
+
+  // Refresh journal periodically while open
+  useEffect(() => {
+    if (!target) return;
+    const interval = setInterval(() => {
+      window.electronAPI.workspace.readFile(`/workspace/${target}/journal.md`)
+        .then(content => setJournalContent(content || null))
+        .catch(() => {});
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [target]);
+
   const notes = useMemo(() => {
     if (allNotes && allNotes.length > 0) return allNotes;
     if (notebook) return [notebook];
     return [];
   }, [notebook, allNotes]);
 
+  // Build pages from journal or notes depending on active tab
+  const journalAsNotes = useMemo((): Note[] => {
+    if (!journalContent) return [];
+    return [{
+      id: 'journal',
+      title: `${target || 'Engagement'} Journal`,
+      content: journalContent,
+      tags: ['journal'],
+      source: 'ai' as const,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }];
+  }, [journalContent, target]);
+
+  const displayNotes = activeTab === 'journal' && journalAsNotes.length > 0 ? journalAsNotes : notes;
+  const displayTitle = activeTab === 'journal' && journalContent
+    ? `${target || 'Engagement'} Journal`
+    : notebookTitle || notebook?.title || 'Prowl Journal';
+
   const pages = useMemo(
-    () => buildPages(notes, notebookTitle || notebook?.title || 'Prowl Field Notebook'),
-    [notes, notebookTitle, notebook?.title]
+    () => buildPages(displayNotes, displayTitle),
+    [displayNotes, displayTitle]
   );
 
   const [currentPage, setCurrentPage] = useState(0);
@@ -410,8 +456,34 @@ const NotebookViewer: React.FC<NotebookViewerProps> = ({ notebook, notebookTitle
           {renderFlipPage()}
         </div>
 
-        <div className="nb-indicator">
-          {currentPage + 1} / {totalSpreads}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 12 }}>
+          <div style={{ display: 'flex', gap: 4, background: 'rgba(40,30,20,0.6)', borderRadius: 6, padding: 3 }}>
+            <button
+              onClick={() => { setActiveTab('journal'); setCurrentPage(0); }}
+              style={{
+                padding: '4px 12px', fontSize: 11, border: 'none', borderRadius: 4, cursor: 'pointer',
+                background: activeTab === 'journal' ? 'rgba(180,150,100,0.3)' : 'transparent',
+                color: activeTab === 'journal' ? 'rgba(255,240,200,0.9)' : 'rgba(255,240,200,0.4)',
+                fontFamily: 'Georgia, serif',
+              }}
+            >
+              Journal
+            </button>
+            <button
+              onClick={() => { setActiveTab('notes'); setCurrentPage(0); }}
+              style={{
+                padding: '4px 12px', fontSize: 11, border: 'none', borderRadius: 4, cursor: 'pointer',
+                background: activeTab === 'notes' ? 'rgba(180,150,100,0.3)' : 'transparent',
+                color: activeTab === 'notes' ? 'rgba(255,240,200,0.9)' : 'rgba(255,240,200,0.4)',
+                fontFamily: 'Georgia, serif',
+              }}
+            >
+              Notes
+            </button>
+          </div>
+          <div className="nb-indicator" style={{ margin: 0 }}>
+            {currentPage + 1} / {totalSpreads}
+          </div>
         </div>
       </div>
     </div>

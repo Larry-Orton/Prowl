@@ -393,7 +393,7 @@ const TitleBar: React.FC<TitleBarProps> = ({
       {showNotebook && (
         <NotebookViewer
           notebook={notebookNote}
-          notebookTitle={currentEngagementName ? `${currentEngagementName} Notebook` : 'Prowl Field Notebook'}
+          notebookTitle={currentEngagementName ? `${currentEngagementName} Journal` : 'Prowl Journal'}
           allNotes={allNotes}
           onClose={() => setShowNotebook(false)}
         />

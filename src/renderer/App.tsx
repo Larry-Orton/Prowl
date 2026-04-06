@@ -913,19 +913,107 @@ const App: React.FC = () => {
   const lastCompletedCommandRef = useRef<{ command: string; output: string } | null>(null);
   const [showSendToAI, setShowSendToAI] = useState(false);
 
+  // ── Journal System ──────────────────────────────
+  const journalQueueRef = useRef<{ command: string; output: string; timestamp: string }[]>([]);
+  const journalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const journalWritingRef = useRef(false);
+
+  const JOURNAL_TOOLS = [
+    'nmap', 'masscan', 'gobuster', 'feroxbuster', 'dirb', 'nikto', 'sqlmap',
+    'hydra', 'john', 'hashcat', 'curl', 'wget', 'enum4linux', 'smbclient',
+    'rpcclient', 'crackmapexec', 'evil-winrm', 'ssh', 'ftp', 'nc', 'ncat',
+    'msfconsole', 'searchsploit', 'wfuzz', 'ffuf', 'whatweb', 'wafw00f',
+    'python', 'python3', 'ruby', 'perl', 'php', 'chisel', 'ligolo',
+    'impacket', 'psexec', 'secretsdump', 'getuserspns', 'dnsrecon', 'dnsenum',
+    'dig', 'host', 'whois', 'subfinder', 'amass', 'httpx', 'nuclei',
+    'cat /etc', 'cat /root', 'sudo', 'su ', 'chmod', 'find / ', 'linpeas',
+    'winpeas', 'pspy', 'certutil', 'powershell', 'whoami /priv', 'netstat',
+  ];
+
+  const isJournalWorthy = useCallback((cmd: string): boolean => {
+    const lower = cmd.toLowerCase().trim();
+    return JOURNAL_TOOLS.some(tool => lower.startsWith(tool) || lower.includes('/' + tool));
+  }, []);
+
+  const flushJournal = useCallback(async () => {
+    if (journalWritingRef.current) return;
+    if (journalQueueRef.current.length === 0) return;
+    if (!context.primaryTarget) return;
+
+    const entries = [...journalQueueRef.current];
+    journalQueueRef.current = [];
+    journalWritingRef.current = true;
+
+    try {
+      // Read existing journal
+      const existingJournal = await window.electronAPI.workspace.readFile(
+        `/workspace/${context.primaryTarget}/journal.md`
+      ) || '';
+
+      const entriesText = entries.map(e =>
+        `Command: \`${e.command}\`\nTimestamp: ${e.timestamp}\nOutput:\n\`\`\`\n${e.output.slice(-3000)}\n\`\`\``
+      ).join('\n\n');
+
+      const journalPrompt = `You are writing a pentest engagement journal. Write narrative journal entries for the following commands that were just run against ${context.primaryTarget}.
+
+Write like a senior pentester documenting their work for a report. For each command:
+- What phase this belongs to (Recon, Enumeration, Exploitation, Post-Exploitation, Privilege Escalation, Lateral Movement)
+- What we did and WHY (the reasoning behind the command)
+- What we found (key results from the output)
+- What this means for the engagement (implications, next steps)
+
+Write in first person plural ("We ran...", "We discovered..."). Be specific about findings. Include the actual command. Keep each entry 3-6 sentences.
+
+Format each entry as:
+### [Phase] — [Brief Title]
+*[timestamp]*
+
+[Narrative paragraph]
+
+---
+
+Here are the commands to journal:
+
+${entriesText}
+
+${existingJournal ? `\nExisting journal so far (for context, do NOT repeat these entries):\n${existingJournal.slice(-4000)}` : ''}
+
+Write ONLY the new journal entries. Do not repeat existing entries.`;
+
+      const result = await runBackgroundTask(journalPrompt, context, notes, {
+        systemPromptOverride: 'You are a pentest engagement journal writer. Write clear, educational, narrative entries documenting penetration testing activity. Be specific about findings and their implications. Do not include any XML tags or metadata — just the journal entries in markdown.',
+      });
+
+      if (result) {
+        const newJournal = existingJournal
+          ? `${existingJournal}\n\n${result.trim()}`
+          : `# Engagement Journal — ${context.primaryTarget}\n\n${result.trim()}`;
+        await window.electronAPI.workspace.writeFile(
+          `/workspace/${context.primaryTarget}/journal.md`,
+          newJournal
+        );
+      }
+    } catch {
+      // Re-queue on failure
+      journalQueueRef.current.unshift(...entries);
+    } finally {
+      journalWritingRef.current = false;
+    }
+  }, [context, notes, runBackgroundTask]);
+
   const handleCommandComplete = useCallback((command: string, output: string) => {
-    // Strip any remaining ANSI/OSC escape codes (xterm buffer should be clean, but just in case)
+    // Strip any remaining ANSI/OSC escape codes
     const cleanOutput = output
-      .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')   // CSI sequences
-      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '') // OSC sequences
-      .replace(/\x1b[()][A-Z0-9]/g, '')          // charset sequences
-      .replace(/\x1b[>=<]/g, '')                  // mode sequences
-      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '') // control chars (keep \n \r \t)
+      .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
+      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+      .replace(/\x1b[()][A-Z0-9]/g, '')
+      .replace(/\x1b[>=<]/g, '')
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '')
       .replace(/\r/g, '')
       .trim();
     const cmd = command.toLowerCase().trim();
 
-    // Skip trivial commands — no need to show "Send to AI" for ls, cd, etc.
+    // Skip trivial commands
     const trivialCommands = ['ls', 'cd', 'pwd', 'clear', 'whoami', 'id', 'exit', 'history', 'echo', 'man', 'help'];
     if (trivialCommands.some(t => cmd === t || cmd.startsWith(t + ' '))) {
       setShowSendToAI(false);
@@ -940,7 +1028,24 @@ const App: React.FC = () => {
 
     lastCompletedCommandRef.current = { command, output: cleanOutput };
     setShowSendToAI(true);
-  }, []);
+
+    // Queue for journal if it's a significant command
+    if (isJournalWorthy(command) && context.primaryTarget) {
+      journalQueueRef.current.push({
+        command,
+        output: cleanOutput,
+        timestamp: new Date().toLocaleString(),
+      });
+
+      // Flush journal after 3 queued commands or 30 seconds
+      if (journalQueueRef.current.length >= 3) {
+        void flushJournal();
+      } else {
+        if (journalTimerRef.current) clearTimeout(journalTimerRef.current);
+        journalTimerRef.current = setTimeout(() => void flushJournal(), 30000);
+      }
+    }
+  }, [context.primaryTarget, isJournalWorthy, flushJournal]);
 
   const handleSendLastOutputToAI = useCallback(() => {
     const last = lastCompletedCommandRef.current;
