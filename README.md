@@ -38,9 +38,11 @@ It gives you:
 | Feature | What it does |
 | --- | --- |
 | **Multi-tab terminals** | Local shell and Kali container tabs, renameable, with split view |
-| **AI assistant** | Ask questions, send command output for analysis, get help mid-engagement |
-| **VPN management** | Upload .ovpn files, connect/disconnect/switch with one click |
-| **Notes & notebooks** | Quick notes from terminal keywords or the notes panel |
+| **AI assistant** | Ask questions, get help mid-engagement. Choose between Opus, Sonnet, or Haiku models |
+| **Voice mode** | Say "Hey TARS" to talk to the AI hands-free. AI speaks responses back (skips code blocks) |
+| **Target memory** | AI auto-creates a `target.md` file per target — remembers ports, services, credentials, and failed attempts across sessions |
+| **VPN management** | Upload .ovpn files, connect/disconnect/switch/delete with one click |
+| **Notes & notebooks** | Quick notes from terminal keywords or the notes panel, with a page-flip notebook viewer |
 | **Findings tracker** | Structured discoveries — targets, ports, services, URLs, credentials, vulnerabilities |
 | **Engagements** | Separate targets, notes, findings, and history by project |
 | **Mission timeline** | Chronological feed of commands, notes, findings, and events |
@@ -151,10 +153,13 @@ If you never read title bars and just click whatever looks suspicious, here is t
 The AI assistant is there to help during engagements:
 
 - Answer questions about tools, techniques, and methodology
-- Analyze command output — click the "Send to Prowl AI" button after any command
+- The AI sees your terminal output automatically — just ask about what happened
 - Help interpret scan results, suggest next steps
 - Search the web for walkthroughs and documentation
 - Create notes and save findings from the conversation
+- **Persistent target memory** — the AI auto-creates a `target.md` file in each target's workspace. It remembers ports, services, credentials, failed attempts, and next steps across sessions. Come back tomorrow and it knows where you left off.
+- **Voice mode** — click the mic button and say "Hey TARS" to talk hands-free. The AI speaks responses back (code blocks are skipped). Toggle on/off anytime.
+- **Model selection** — choose between Opus (smartest, best for hard machines), Sonnet (balanced), or Haiku (fastest/cheapest) from the AI panel header.
 
 You need an Anthropic API key to use the AI features. PROWL works fine without one — you just won't have the chat panel.
 
