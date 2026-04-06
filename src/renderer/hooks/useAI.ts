@@ -28,10 +28,10 @@ function formatTerminalActivity(context: ActiveContext): string {
       }
 
       const activity = session.recentActivity
-        .slice(0, 3)
+        .slice(0, 5)
         .map((entry, index) => {
           const output = entry.output
-            ? entry.output.slice(-900)
+            ? entry.output.slice(-4000)
             : '(no output captured yet)';
           const indentedOutput = output
             .split('\n')
@@ -115,7 +115,7 @@ Discovered Ports: ${context.discoveredPorts.join(', ') || 'none yet'}
 Scanned Services: ${context.scannedServices.join(', ') || 'none yet'}
 Recent Commands Across Terminals: ${context.recentCommands.slice(0, 12).join(', ') || 'none'}
 Most Recent Terminal Output:
-${context.lastCommandOutput.slice(-1500) || '(none)'}
+${context.lastCommandOutput.slice(-4000) || '(none)'}
 Open Terminal Activity:
 ${formatTerminalActivity(context)}
 

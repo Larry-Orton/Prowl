@@ -21,8 +21,8 @@ interface SessionStore {
 
 const MAX_RECENT_COMMANDS = 20;
 const MAX_SESSION_NOTES = 50;
-const MAX_TERMINAL_ACTIVITY = 6;
-const MAX_ACTIVITY_OUTPUT = 2400;
+const MAX_TERMINAL_ACTIVITY = 8;
+const MAX_ACTIVITY_OUTPUT = 8000;
 const MAX_LAST_OUTPUT = 3000;
 
 function createActivityId(): string {
