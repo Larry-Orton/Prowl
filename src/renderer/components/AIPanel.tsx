@@ -144,9 +144,14 @@ const AIPanel: React.FC<AIPanelProps> = ({
     return localStorage.getItem('prowl-ai-model') || 'claude-sonnet-4-6';
   });
   const [showModelPicker, setShowModelPicker] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState<'off' | 'waiting' | 'listening' | 'processing'>('off');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
+  const lastSpokenMsgIdRef = useRef<string>('');
   const missionMode = useMissionModeStore((s) => s.mode);
 
   // Save model selection
@@ -154,6 +159,152 @@ const AIPanel: React.FC<AIPanelProps> = ({
     localStorage.setItem('prowl-ai-model', selectedModel);
     window.electronAPI?.ai?.setModel?.(selectedModel);
   }, [selectedModel]);
+
+  // ── Text-to-Speech: speak AI responses (skip code blocks) ──
+  const speakText = useCallback((text: string) => {
+    if (!voiceEnabled) return;
+    // Strip code blocks and inline code — only speak explanations
+    const speakable = text
+      .replace(/```[\w]*\n[\s\S]*?```/g, ' (code block omitted) ')
+      .replace(/`[^`]+`/g, '')
+      .replace(/<target-update>[\s\S]*?<\/target-update>/g, '')
+      .replace(/\n+/g, '. ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!speakable) return;
+    window.speechSynthesis.cancel();
+    // Split into chunks (speechSynthesis has length limits)
+    const chunks = speakable.match(/.{1,200}[.!?\s]|.{1,200}/g) || [speakable];
+    for (const chunk of chunks) {
+      const utterance = new SpeechSynthesisUtterance(chunk);
+      utterance.rate = 1.05;
+      utterance.pitch = 0.95;
+      utterance.volume = 0.9;
+      window.speechSynthesis.speak(utterance);
+    }
+  }, [voiceEnabled]);
+
+  // Speak new AI messages
+  useEffect(() => {
+    if (!voiceEnabled || messages.length === 0) return;
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg.role === 'assistant' && lastMsg.variant === 'chat' && lastMsg.id !== lastSpokenMsgIdRef.current) {
+      lastSpokenMsgIdRef.current = lastMsg.id;
+      speakText(lastMsg.content);
+    }
+  }, [messages, voiceEnabled, speakText]);
+
+  // ── Speech Recognition: wake word + voice input ──
+  useEffect(() => {
+    if (!voiceEnabled) {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+        recognitionRef.current = null;
+      }
+      setVoiceStatus('off');
+      setIsListening(false);
+      window.speechSynthesis.cancel();
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      console.error('Speech Recognition not supported');
+      setVoiceEnabled(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognitionRef.current = recognition;
+
+    let wakeWordDetected = false;
+    let capturedTranscript = '';
+    let silenceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    recognition.onresult = (event: any) => {
+      let interim = '';
+      let final = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          final += transcript;
+        } else {
+          interim += transcript;
+        }
+      }
+
+      const combined = (final + interim).toLowerCase();
+
+      if (!wakeWordDetected) {
+        // Check for wake word
+        if (combined.includes('hey tars') || combined.includes('hey cars') || combined.includes('a tars')) {
+          wakeWordDetected = true;
+          capturedTranscript = '';
+          setIsListening(true);
+          setVoiceStatus('listening');
+          // Clear any text after "hey tars" to start fresh
+          const afterWake = combined.split(/hey\s*tars|hey\s*cars|a\s*tars/).pop()?.trim() || '';
+          if (afterWake) capturedTranscript = afterWake;
+        } else {
+          setVoiceStatus('waiting');
+        }
+        return;
+      }
+
+      // Capturing user's message after wake word
+      if (final) {
+        capturedTranscript += ' ' + final;
+      }
+      setVoiceStatus('listening');
+
+      // Reset silence timer — when user stops talking for 2s, send the message
+      if (silenceTimer) clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(() => {
+        const text = capturedTranscript.trim();
+        if (text) {
+          setInputValue(text);
+          // Auto-send after a brief delay so user can see what was captured
+          setTimeout(() => {
+            setInputValue('');
+            onSendMessage(text, context, notes);
+          }, 300);
+        }
+        wakeWordDetected = false;
+        capturedTranscript = '';
+        setIsListening(false);
+        setVoiceStatus('waiting');
+      }, 2000);
+    };
+
+    recognition.onerror = (event: any) => {
+      if (event.error === 'no-speech' || event.error === 'aborted') return;
+      console.error('Speech recognition error:', event.error);
+    };
+
+    recognition.onend = () => {
+      // Auto-restart if voice is still enabled
+      if (voiceEnabled && recognitionRef.current === recognition) {
+        try { recognition.start(); } catch { /* ignore */ }
+      }
+    };
+
+    try {
+      recognition.start();
+      setVoiceStatus('waiting');
+    } catch {
+      console.error('Failed to start speech recognition');
+    }
+
+    return () => {
+      if (silenceTimer) clearTimeout(silenceTimer);
+      recognition.abort();
+      recognitionRef.current = null;
+    };
+  }, [voiceEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Close model picker on outside click
   useEffect(() => {
@@ -248,9 +399,35 @@ const AIPanel: React.FC<AIPanelProps> = ({
             {missionMode.label}
           </span>
         </div>
-        <div className={`ai-status-indicator ${isThinking ? 'thinking' : hasApiKey ? 'ready' : 'offline'}`}>
-          <span className="status-pulse" />
-          {isThinking ? 'thinking' : hasApiKey ? 'live' : 'offline'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={() => setVoiceEnabled(!voiceEnabled)}
+            title={voiceEnabled ? `Voice ON (${voiceStatus}) — click to disable` : 'Enable voice — say "Hey TARS" to talk'}
+            style={{
+              background: voiceEnabled ? (isListening ? 'var(--red)' : 'var(--accent)') : 'var(--bg2)',
+              border: 'none',
+              borderRadius: '50%',
+              width: 26,
+              height: 26,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              animation: isListening ? 'pulse-mic 1.5s infinite' : 'none',
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={voiceEnabled ? 'white' : 'var(--text3)'} strokeWidth="2">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+          </button>
+          <div className={`ai-status-indicator ${isThinking ? 'thinking' : hasApiKey ? 'ready' : 'offline'}`}>
+            <span className="status-pulse" />
+            {isListening ? 'listening...' : isThinking ? 'thinking' : hasApiKey ? 'live' : 'offline'}
+          </div>
         </div>
       </div>
 

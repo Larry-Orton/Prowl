@@ -971,6 +971,11 @@ code {
   50% { opacity: 0.3; }
 }
 
+@keyframes pulse-mic {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 60, 60, 0.6); }
+  50% { box-shadow: 0 0 0 8px rgba(220, 60, 60, 0); }
+}
+
 .ai-scroll-region {
   flex: 1;
   min-height: 0;
