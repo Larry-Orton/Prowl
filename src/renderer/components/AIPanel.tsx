@@ -145,12 +145,11 @@ const AIPanel: React.FC<AIPanelProps> = ({
   });
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
-  const [isListening, setIsListening] = useState(false);
-  const [voiceStatus, setVoiceStatus] = useState<'off' | 'waiting' | 'listening' | 'processing'>('off');
+  const isSpeakingRef = useRef(false);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<any>(null);
   const lastSpokenMsgIdRef = useRef<string>('');
   const missionMode = useMissionModeStore((s) => s.mode);
 
@@ -161,43 +160,82 @@ const AIPanel: React.FC<AIPanelProps> = ({
   }, [selectedModel]);
 
   // ── Text-to-Speech: speak AI responses (skip code blocks) ──
-  const speakText = useCallback((text: string) => {
+  const speakText = useCallback(async (text: string) => {
     if (!voiceEnabled) return;
+    if (isSpeakingRef.current) return; // Prevent double-fire
+    isSpeakingRef.current = true;
+
     // Strip code blocks, inline code, and target updates — only speak explanations
     const speakable = text
       .replace(/```[\w]*\n[\s\S]*?```/g, ' ')
       .replace(/`[^`]+`/g, '')
       .replace(/<target-update>[\s\S]*?<\/target-update>/g, '')
       .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/#{1,3}\s+/g, '')
       .replace(/\n+/g, '. ')
       .replace(/\s*\.\s*\.\s*/g, '. ')
       .replace(/\s+/g, ' ')
       .trim();
-    if (!speakable || speakable.length < 3) return;
+
+    if (!speakable || speakable.length < 3) {
+      isSpeakingRef.current = false;
+      return;
+    }
+
+    // Cancel any existing speech
     window.speechSynthesis.cancel();
 
-    // Pick the best available voice — prefer natural/enhanced voices
-    const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find(v =>
-      /natural|neural|enhanced|online/i.test(v.name) && v.lang.startsWith('en')
-    ) || voices.find(v =>
-      /zira|david|mark|samantha|alex|karen|daniel/i.test(v.name) && v.lang.startsWith('en')
-    ) || voices.find(v =>
-      v.lang.startsWith('en') && !v.localService
-    ) || voices.find(v =>
-      v.lang.startsWith('en')
-    );
-
-    // Split into chunks (speechSynthesis has length limits)
-    const chunks = speakable.match(/.{1,200}[.!?\s]|.{1,200}/g) || [speakable];
-    for (const chunk of chunks) {
-      const utterance = new SpeechSynthesisUtterance(chunk);
-      if (preferred) utterance.voice = preferred;
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
-      utterance.volume = 1.0;
-      window.speechSynthesis.speak(utterance);
+    // Try Piper first (bundled neural voice)
+    let usedPiper = false;
+    try {
+      const wavPath = await window.electronAPI.tts.speak(speakable);
+      if (wavPath) {
+        const audioUrl = `prowl-tts://${encodeURIComponent(wavPath)}`;
+        const audio = new Audio(audioUrl);
+        currentAudioRef.current = audio;
+        await new Promise<void>((resolve, reject) => {
+          audio.onended = () => {
+            currentAudioRef.current = null;
+            window.electronAPI.tts.cleanup(wavPath);
+            resolve();
+          };
+          audio.onerror = () => {
+            currentAudioRef.current = null;
+            window.electronAPI.tts.cleanup(wavPath);
+            reject(new Error('playback failed'));
+          };
+          audio.play().catch(reject);
+        });
+        usedPiper = true;
+      }
+    } catch {
+      // Piper failed, fall through
     }
+
+    // Fallback: browser speechSynthesis
+    if (!usedPiper) {
+      const voices = window.speechSynthesis.getVoices();
+      const preferred = voices.find(v =>
+        /natural|neural|enhanced|online/i.test(v.name) && v.lang.startsWith('en')
+      ) || voices.find(v =>
+        /zira|david|mark|samantha|alex|karen|daniel/i.test(v.name) && v.lang.startsWith('en')
+      ) || voices.find(v =>
+        v.lang.startsWith('en') && !v.localService
+      ) || voices.find(v =>
+        v.lang.startsWith('en')
+      );
+      const chunks = speakable.match(/.{1,200}[.!?\s]|.{1,200}/g) || [speakable];
+      for (const chunk of chunks) {
+        const utterance = new SpeechSynthesisUtterance(chunk);
+        if (preferred) utterance.voice = preferred;
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+
+    isSpeakingRef.current = false;
   }, [voiceEnabled]);
 
   // Speak new AI messages
@@ -206,120 +244,21 @@ const AIPanel: React.FC<AIPanelProps> = ({
     const lastMsg = messages[messages.length - 1];
     if (lastMsg.role === 'assistant' && lastMsg.variant === 'chat' && lastMsg.id !== lastSpokenMsgIdRef.current) {
       lastSpokenMsgIdRef.current = lastMsg.id;
-      speakText(lastMsg.content);
+      void speakText(lastMsg.content);
     }
   }, [messages, voiceEnabled, speakText]);
 
-  // ── Speech Recognition: wake word + voice input ──
+  // ── Voice toggle cleanup ──
   useEffect(() => {
     if (!voiceEnabled) {
-      if (recognitionRef.current) {
-        recognitionRef.current.abort();
-        recognitionRef.current = null;
-      }
-      setVoiceStatus('off');
-      setIsListening(false);
       window.speechSynthesis.cancel();
-      return;
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+        currentAudioRef.current = null;
+      }
+      isSpeakingRef.current = false;
     }
-
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      console.error('Speech Recognition not supported');
-      setVoiceEnabled(false);
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
-    recognitionRef.current = recognition;
-
-    let wakeWordDetected = false;
-    let capturedTranscript = '';
-    let silenceTimer: ReturnType<typeof setTimeout> | null = null;
-
-    recognition.onresult = (event: any) => {
-      let interim = '';
-      let final = '';
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          final += transcript;
-        } else {
-          interim += transcript;
-        }
-      }
-
-      const combined = (final + interim).toLowerCase();
-
-      if (!wakeWordDetected) {
-        // Check for wake word
-        if (combined.includes('hey tars') || combined.includes('hey cars') || combined.includes('a tars')) {
-          wakeWordDetected = true;
-          capturedTranscript = '';
-          setIsListening(true);
-          setVoiceStatus('listening');
-          // Clear any text after "hey tars" to start fresh
-          const afterWake = combined.split(/hey\s*tars|hey\s*cars|a\s*tars/).pop()?.trim() || '';
-          if (afterWake) capturedTranscript = afterWake;
-        } else {
-          setVoiceStatus('waiting');
-        }
-        return;
-      }
-
-      // Capturing user's message after wake word
-      if (final) {
-        capturedTranscript += ' ' + final;
-      }
-      setVoiceStatus('listening');
-
-      // Reset silence timer — when user stops talking for 2s, send the message
-      if (silenceTimer) clearTimeout(silenceTimer);
-      silenceTimer = setTimeout(() => {
-        const text = capturedTranscript.trim();
-        if (text) {
-          setInputValue(text);
-          // Auto-send after a brief delay so user can see what was captured
-          setTimeout(() => {
-            setInputValue('');
-            onSendMessage(text, context, notes);
-          }, 300);
-        }
-        wakeWordDetected = false;
-        capturedTranscript = '';
-        setIsListening(false);
-        setVoiceStatus('waiting');
-      }, 2000);
-    };
-
-    recognition.onerror = (event: any) => {
-      if (event.error === 'no-speech' || event.error === 'aborted') return;
-      console.error('Speech recognition error:', event.error);
-    };
-
-    recognition.onend = () => {
-      // Auto-restart if voice is still enabled
-      if (voiceEnabled && recognitionRef.current === recognition) {
-        try { recognition.start(); } catch { /* ignore */ }
-      }
-    };
-
-    try {
-      recognition.start();
-      setVoiceStatus('waiting');
-    } catch {
-      console.error('Failed to start speech recognition');
-    }
-
-    return () => {
-      if (silenceTimer) clearTimeout(silenceTimer);
-      recognition.abort();
-      recognitionRef.current = null;
-    };
+    return;
   }, [voiceEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Close model picker on outside click
@@ -418,9 +357,9 @@ const AIPanel: React.FC<AIPanelProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             onClick={() => setVoiceEnabled(!voiceEnabled)}
-            title={voiceEnabled ? `Voice ON (${voiceStatus}) — click to disable` : 'Enable voice — say "Hey TARS" to talk'}
+            title={voiceEnabled ? 'Voice ON — AI speaks responses. Click to mute.' : 'Enable AI voice — responses will be spoken aloud'}
             style={{
-              background: voiceEnabled ? (isListening ? 'var(--red)' : 'var(--accent)') : 'var(--bg2)',
+              background: voiceEnabled ? 'var(--accent)' : 'var(--bg2)',
               border: 'none',
               borderRadius: '50%',
               width: 26,
@@ -430,7 +369,7 @@ const AIPanel: React.FC<AIPanelProps> = ({
               justifyContent: 'center',
               cursor: 'pointer',
               transition: 'all 0.2s ease',
-              animation: isListening ? 'pulse-mic 1.5s infinite' : 'none',
+              animation: 'none',
             }}
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={voiceEnabled ? 'white' : 'var(--text3)'} strokeWidth="2">
@@ -442,7 +381,7 @@ const AIPanel: React.FC<AIPanelProps> = ({
           </button>
           <div className={`ai-status-indicator ${isThinking ? 'thinking' : hasApiKey ? 'ready' : 'offline'}`}>
             <span className="status-pulse" />
-            {isListening ? 'listening...' : isThinking ? 'thinking' : hasApiKey ? 'live' : 'offline'}
+            {isThinking ? 'thinking' : hasApiKey ? 'live' : 'offline'}
           </div>
         </div>
       </div>

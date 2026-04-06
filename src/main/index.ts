@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, session } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, session, protocol, net } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import path from 'path';
 import fs from 'fs';
@@ -136,22 +136,32 @@ function createWindow(): void {
     show: false,
   });
 
-  // In dev mode, relax CSP for Vite HMR
-  if (isDev) {
-    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-      callback({
-        responseHeaders: {
-          ...details.responseHeaders,
-          'Content-Security-Policy': [
-            "default-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-            "font-src 'self' https://fonts.gstatic.com data:; " +
-            "connect-src 'self' ws://localhost:5173 http://localhost:5173 https://fonts.googleapis.com https://fonts.gstatic.com;"
-          ],
-        },
-      });
+  // Grant all permissions (microphone for speech recognition, etc.)
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(true);
+  });
+
+  // Set CSP to allow data: URLs for Piper TTS audio and Google speech API
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+          "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+          "font-src 'self' https://fonts.gstatic.com data:; " +
+          "media-src 'self' data: blob:; " +
+          "img-src 'self' data:; " +
+          (isDev
+            ? "connect-src 'self' ws://localhost:5173 http://localhost:5173 https://fonts.googleapis.com https://fonts.gstatic.com https://www.google.com https://*.google.com wss://*.google.com;"
+            : "connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com https://www.google.com https://*.google.com wss://*.google.com;")
+        ],
+      },
     });
+  });
+
+  if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
@@ -529,6 +539,43 @@ ipcMain.handle('workspace:writeFile', async (_, filePath: string, content: strin
   }
 });
 
+// ── TTS (Piper) IPC ───────────────────────────────
+
+ipcMain.handle('tts:speak', async (_, text: string) => {
+  const { execFile: ef } = await import('child_process');
+  const piperDir = app.isPackaged
+    ? path.resolve(process.resourcesPath, 'piper')
+    : path.resolve(app.getAppPath(), 'resources', 'piper');
+  const piperExe = path.join(piperDir, 'piper.exe');
+  const modelPath = path.join(piperDir, 'en_US-amy-medium.onnx');
+
+  if (!fs.existsSync(piperExe) || !fs.existsSync(modelPath)) {
+    return null;
+  }
+
+  const outFile = path.join(app.getPath('temp'), `prowl-tts-${Date.now()}.wav`);
+
+  const success = await new Promise<boolean>((resolve) => {
+    const proc = ef(piperExe, [
+      '--model', modelPath,
+      '--output_file', outFile,
+    ], { cwd: piperDir, timeout: 30000 }, (err) => {
+      resolve(!err && fs.existsSync(outFile));
+    });
+    proc.stdin?.write(text);
+    proc.stdin?.end();
+  });
+
+  if (!success) return null;
+
+  // Serve the WAV file through a local protocol that CSP allows
+  return outFile;
+});
+
+ipcMain.handle('tts:cleanup', async (_, filePath: string) => {
+  try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+});
+
 // ── Dialog IPC ─────────────────────────────────────
 
 ipcMain.handle('dialog:saveFile', async (_, content: string, defaultName: string) => {
@@ -564,7 +611,18 @@ ipcMain.on('window:drag-move', (_, deltaX: number, deltaY: number) => {
 
 // ── App lifecycle ──────────────────────────────────
 
+// Register prowl-tts:// protocol for serving TTS audio files
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'prowl-tts', privileges: { bypassCSP: true, stream: true, supportFetchAPI: true } },
+]);
+
 app.whenReady().then(() => {
+  // Handle prowl-tts:// URLs — serves local WAV files
+  protocol.handle('prowl-tts', (request) => {
+    const filePath = decodeURIComponent(request.url.replace('prowl-tts://', ''));
+    return net.fetch(`file://${filePath}`);
+  });
+
   createWindow();
 
   // Detect container runtime on startup

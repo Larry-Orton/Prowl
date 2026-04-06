@@ -257,6 +257,11 @@ export interface ElectronWorkspaceAPI {
   deleteFile: (filePath: string) => Promise<boolean>;
 }
 
+export interface ElectronTTSAPI {
+  speak: (text: string) => Promise<string | null>;
+  cleanup: (filePath: string) => Promise<void>;
+}
+
 export interface ElectronDialogAPI {
   saveFile: (content: string, defaultName: string) => Promise<boolean>;
 }
@@ -279,6 +284,7 @@ export interface ElectronAPI {
   vpn: ElectronVPNAPI;
   browser: ElectronBrowserAPI;
   workspace: ElectronWorkspaceAPI;
+  tts: ElectronTTSAPI;
   dialog: ElectronDialogAPI;
   window: ElectronWindowAPI;
 }

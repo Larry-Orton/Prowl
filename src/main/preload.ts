@@ -88,6 +88,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     writeFile: (filePath: string, content: string) => ipcRenderer.invoke('workspace:writeFile', filePath, content),
     deleteFile: (filePath: string) => ipcRenderer.invoke('workspace:deleteFile', filePath),
   },
+  tts: {
+    speak: (text: string) => ipcRenderer.invoke('tts:speak', text),
+    cleanup: (filePath: string) => ipcRenderer.invoke('tts:cleanup', filePath),
+  },
   dialog: {
     saveFile: (content: string, defaultName: string) =>
       ipcRenderer.invoke('dialog:saveFile', content, defaultName),
