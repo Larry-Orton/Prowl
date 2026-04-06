@@ -163,23 +163,39 @@ const AIPanel: React.FC<AIPanelProps> = ({
   // ── Text-to-Speech: speak AI responses (skip code blocks) ──
   const speakText = useCallback((text: string) => {
     if (!voiceEnabled) return;
-    // Strip code blocks and inline code — only speak explanations
+    // Strip code blocks, inline code, and target updates — only speak explanations
     const speakable = text
-      .replace(/```[\w]*\n[\s\S]*?```/g, ' (code block omitted) ')
+      .replace(/```[\w]*\n[\s\S]*?```/g, ' ')
       .replace(/`[^`]+`/g, '')
       .replace(/<target-update>[\s\S]*?<\/target-update>/g, '')
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
       .replace(/\n+/g, '. ')
+      .replace(/\s*\.\s*\.\s*/g, '. ')
       .replace(/\s+/g, ' ')
       .trim();
-    if (!speakable) return;
+    if (!speakable || speakable.length < 3) return;
     window.speechSynthesis.cancel();
+
+    // Pick the best available voice — prefer natural/enhanced voices
+    const voices = window.speechSynthesis.getVoices();
+    const preferred = voices.find(v =>
+      /natural|neural|enhanced|online/i.test(v.name) && v.lang.startsWith('en')
+    ) || voices.find(v =>
+      /zira|david|mark|samantha|alex|karen|daniel/i.test(v.name) && v.lang.startsWith('en')
+    ) || voices.find(v =>
+      v.lang.startsWith('en') && !v.localService
+    ) || voices.find(v =>
+      v.lang.startsWith('en')
+    );
+
     // Split into chunks (speechSynthesis has length limits)
     const chunks = speakable.match(/.{1,200}[.!?\s]|.{1,200}/g) || [speakable];
     for (const chunk of chunks) {
       const utterance = new SpeechSynthesisUtterance(chunk);
-      utterance.rate = 1.05;
-      utterance.pitch = 0.95;
-      utterance.volume = 0.9;
+      if (preferred) utterance.voice = preferred;
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
       window.speechSynthesis.speak(utterance);
     }
   }, [voiceEnabled]);
