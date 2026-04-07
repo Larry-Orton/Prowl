@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  Local shell. Kali container. AI assistant. VPN management. Notes. Findings tracker. All in one window.
+  Local shell. Kali container. AI assistant. VPN management. Target notebooks. Credential vault. All in one window.
 </p>
 
 <p align="center">
@@ -25,26 +25,31 @@ PROWL is a terminal emulator built for pentesting. Instead of juggling separate 
 It gives you:
 
 - local and Kali container terminals (with split view)
-- VPN management — upload and connect .ovpn files
-- an AI assistant you can ask questions and send command output to
-- notes and notebooks for tracking what you find
-- a findings tracker for targets, ports, services, and vulnerabilities
-- an embedded browser routed through your VPN
-- engagement system to keep projects separate
-- a loot manager for workspace files
+- 35+ Kali tool commands that auto-fill your target — click and go
+- an AI assistant that sees your terminal output and remembers everything across sessions
+- one notebook per target — you and the AI both write to it
+- a credential vault for discovered passwords, hashes, and keys
+- a methodology checklist that tracks your progress through the engagement
+- a report generator that compiles your findings into a professional pentest report
+- VPN management, embedded browser, findings tracker, and loot manager
 
 ## Features
 
 | Feature | What it does |
 | --- | --- |
 | **Multi-tab terminals** | Local shell and Kali container tabs, renameable, with split view |
-| **AI assistant** | Ask questions, get help mid-engagement. Choose between Opus, Sonnet, or Haiku models |
-| **Voice mode** | Say "Hey TARS" to talk to the AI hands-free. AI speaks responses back (skips code blocks) |
-| **Target memory** | AI auto-creates a `target.md` file per target — remembers ports, services, credentials, and failed attempts across sessions |
+| **35+ Tool Commands** | Categorized Kali tools (Recon, Web, Brute, Exploit, Win/AD, Linux, Util). Click to paste into terminal with target auto-filled |
+| **AI assistant** | Sees your terminal output, remembers across sessions via `target.md`. Choose Opus, Sonnet, or Haiku |
+| **Voice output** | Toggle the mic button — AI speaks responses using a bundled neural voice (Piper TTS). No setup needed |
+| **Target notebooks** | One notebook per target. You write notes, AI auto-journals commands. Edit or read in page-flip view |
+| **Credential vault** | Store discovered credentials — username, password/hash, source, access. Quick SSH/copy buttons |
+| **Methodology checklist** | Full pentest methodology with progress tracking. Includes Windows/AD attack paths. RUN buttons paste commands |
+| **Report generator** | AI compiles a professional pentest report from your engagement data. Export to markdown |
+| **Exploit suggestions** | Per-service searchsploit + AI exploit search for discovered services |
+| **Target memory** | AI auto-creates `target.md` per target — remembers ports, services, credentials, and failed attempts across sessions |
 | **VPN management** | Upload .ovpn files, connect/disconnect/switch/delete with one click |
-| **Notes & notebooks** | Quick notes from terminal keywords or the notes panel, with a page-flip notebook viewer |
 | **Findings tracker** | Structured discoveries — targets, ports, services, URLs, credentials, vulnerabilities |
-| **Engagements** | Separate targets, notes, findings, and history by project |
+| **Engagements** | Separate targets, notebooks, findings, and history by project. Hostname support for HTTP tools |
 | **Mission timeline** | Chronological feed of commands, notes, findings, and events |
 | **Loot manager** | Browse workspace files, preview, classify, promote to findings |
 | **Embedded browser** | Browse targets through the Kali SOCKS proxy |
@@ -62,7 +67,7 @@ It gives you:
 Good news:
 
 - You do **not** need Node.js to install or use the packaged app.
-- PROWL still works without Docker/Podman if you only want the local shell, notes, findings UI, mission timeline, command palette, and engagement flow.
+- PROWL still works without Docker/Podman if you only want the local shell, tools panel, notebooks, and engagement flow.
 - PROWL still works without an API key if you want the terminal and operator workflow without AI.
 
 ## Install PROWL
@@ -80,18 +85,6 @@ Grab the latest release from [GitHub Releases](https://github.com/Larry-Orton/Pr
 
 > **Windows SmartScreen / Smart App Control**: Because PROWL is not yet code-signed, Windows may block the installer. For SmartScreen, click **"More info"** then **"Run anyway"**. For Smart App Control, right-click the exe → Properties → check **"Unblock"** → Apply, then run it. This only happens on the first install — PROWL auto-updates after that.
 
-### Install In About 60 Seconds
-
-1. Download the file for your OS from the [latest release](https://github.com/Larry-Orton/Prowl/releases/latest).
-2. Run the installer or extract the portable build.
-3. Launch PROWL.
-4. Set your Anthropic API key if you want AI features.
-5. Build and start the Kali container if you want the full cockpit.
-
-That is the normal user path.
-That is the blessed path.
-That is the path where you do not end up explaining Electron rebuild logs to your future self.
-
 ## First Launch
 
 1. Launch PROWL.
@@ -100,128 +93,75 @@ That is the path where you do not end up explaining Electron rebuild logs to you
 4. Start the Kali container.
 5. Upload your .ovpn file in the VPN panel if you're using HackTheBox or TryHackMe.
 6. Set your target: `target <ip>`.
-7. Start hacking. Use `Ctrl/Cmd+K` to open the command palette and jump to anything.
+7. Set the hostname in the engagement panel if the target uses one (e.g., `2million.htb`).
+8. Use the tool buttons on the left panel to start scanning — commands auto-fill with your target.
 
 ## Key Concepts
 
 | Term | Meaning |
 | --- | --- |
-| **Engagement** | A project (e.g., a specific HTB machine). Keeps notes, findings, and history separate |
+| **Engagement** | A project (e.g., a specific HTB machine). Keeps notebooks, findings, and history separate |
+| **Notebook** | One per target — a markdown file where you and the AI both write. Auto-created when you set a target |
+| **Credential** | A discovered username/password/hash stored in the vault with source and access info |
 | **Finding** | A structured discovery — target, open port, service, file, URL, or vulnerability |
-| **Loot** | Files in your workspace (scan results, screenshots, scripts) |
-| **Notebook** | A collection of notes for one session or topic |
-| **Timeline** | Chronological feed of everything that happened during the engagement |
+| **Loot** | Files in your workspace (scan results, scripts, output files) |
 
-## Terminal Keywords
+## Title Bar Icons
 
-These commands are intercepted by PROWL before they hit the shell:
+From left to right:
 
-| Command | What it does |
-| --- | --- |
-| `target <ip>` | Set the active target for the current engagement |
-| `note <text>` | Save a note (appends to active notebook if one is open) |
-| `notes add <text>` | Append to the active note or notebook |
-| `note #<n> <text>` | Append to a specific note by index |
-| `notebook <name>` | Open or reuse a notebook with that name |
-| `notebook new <name>` | Create a fresh notebook |
-| `notebook close` | Close the active notebook |
-| `add last <tool>` | Send the last command output to AI for analysis |
-| `ask <question>` | Ask AI directly |
-| `commands <tool>` | Ask AI for a tool reference guide |
-| `search <term>` | Search notes |
-| `export notes` | Export notes to Markdown |
-| `help` / `-help` | Open command help |
-| `hack help` | Ask AI for methodology guidance |
-
-## Buttons Worth Knowing
-
-If you never read title bars and just click whatever looks suspicious, here is the cheat sheet:
-
-- **Palette button** or `Ctrl/Cmd+K`: opens the command palette
-- **Engagements button**: switch projects
-- **Mission mode button**: pin or release the current mode
-- **Split button**: turn one terminal into two
-- **Loot button**: open the loot manager
-- **Findings button**: open structured discoveries
-- **Timeline button**: open the mission feed
-- **Notebook button**: open notebook view
-- **AI button**: open the assistant panel
-- **Browser button**: open the embedded browser
+- **VPN indicator**: shows connection status, click to manage VPN
+- **Kali dragon**: manage the Kali container (build/start/stop)
+- **Command palette**: `Ctrl/Cmd+K` to search everything
+- **Engagements**: switch between projects
+- **Mission mode**: current attack phase
+- **Split**: side-by-side terminals
+- **Loot**: workspace file browser
+- **Findings**: structured discoveries
+- **Timeline**: chronological event feed
+- **Credentials**: credential vault (key icon)
+- **Methodology**: pentest checklist (check icon)
+- **Report**: generate pentest report (document icon)
+- **Exploits**: per-service exploit search (lightning icon)
+- **Notes**: toggle left panel
+- **Notebook**: open target notebook (book icon — dropdown if multiple targets)
+- **AI**: toggle AI chat panel
+- **Browser**: toggle embedded browser
+- **Theme**: color scheme picker
 
 ## What The AI Can Do
 
-The AI assistant is there to help during engagements:
-
 - Answer questions about tools, techniques, and methodology
-- The AI sees your terminal output automatically — just ask about what happened
-- Help interpret scan results, suggest next steps
-- Search the web for walkthroughs and documentation
-- Create notes and save findings from the conversation
-- **Persistent target memory** — the AI auto-creates a `target.md` file in each target's workspace. It remembers ports, services, credentials, failed attempts, and next steps across sessions. Come back tomorrow and it knows where you left off.
-- **Voice mode** — click the mic button and say "Hey TARS" to talk hands-free. The AI speaks responses back (code blocks are skipped). Toggle on/off anytime.
-- **Model selection** — choose between Opus (smartest, best for hard machines), Sonnet (balanced), or Haiku (fastest/cheapest) from the AI panel header.
+- See your terminal output automatically — just ask about what happened
+- Search the web for walkthroughs, CVEs, and documentation
+- **Persistent target memory** — remembers ports, services, credentials, and failed attempts in `target.md`. Come back tomorrow and it knows where you left off
+- **Auto-journal** — after significant commands (nmap, gobuster, etc.), the AI writes a narrative entry in your target notebook
+- **Voice output** — click the mic button to have the AI speak responses. Uses a bundled neural voice (Piper TTS), no setup needed, works offline
+- **Model selection** — choose between Opus (smartest), Sonnet (balanced), or Haiku (fastest/cheapest)
 
-You need an Anthropic API key to use the AI features. PROWL works fine without one — you just won't have the chat panel.
+You need an Anthropic API key to use the AI features. PROWL works fine without one.
 
 ## Kali, Browser, VPN, and Loot
 
 ### Kali Container
 
-With Docker or Podman available, PROWL can run a Kali environment inside the app.
-
-That unlocks:
-
-- Kali-backed terminal tabs
-- mounted `/workspace` storage
-- browser routing through a SOCKS proxy
-- VPN workflows inside the tooling environment
-
-The Kali image builds once and is reused for every session. You do not need to rebuild it each time you launch PROWL.
+With Docker or Podman available, PROWL runs a Kali environment inside the app with 30+ pentesting tools pre-installed. The image builds once and is reused for every session.
 
 ### Embedded Browser
 
-The browser panel is there for actual recon, not moral support.
-
-Use it to:
-
-- browse target web apps inside the app
-- scan a page and send extracted structure to AI
-- keep browser and terminal side-by-side during web work
+Browse target web apps routed through the Kali SOCKS proxy. Scan pages and send content to AI for analysis.
 
 ### VPN
 
-Upload your `.ovpn` file in the VPN panel and connect with one click. VPN traffic runs inside the Kali container so your host network is unaffected.
+Upload `.ovpn` files, connect/disconnect/switch with one click. VPN runs inside the container so your host network is unaffected.
 
 ### Loot Manager
 
-The loot manager lets you:
-
-- browse workspace files by engagement
-- preview text files
-- classify loot by type
-- promote artifacts into findings
-- save loot directly into notes
-
-It also works off the host workspace path, which means your loot is still visible even if the Kali container is not currently running.
+Browse workspace files by engagement, preview text files, classify loot, and promote artifacts into findings. Works even when the Kali container is not running.
 
 ## For Developers
 
-You do not need this section to use PROWL.
-You do need it if you are about to open twelve files and say "I will just trace the flow real quick."
-
-### Source Build Setup
-
-This section is for contributors, local builders, and people intentionally working on the codebase.
-It is **not** the recommended install path for regular users.
-
-Requirements for source builds:
-
-- **Node.js 18+**
-- **npm**
-- native build prerequisites for `node-pty`
-- optionally **Docker** or **Podman** for the Kali container features
-
-Source build flow:
+### Source Build
 
 ```bash
 git clone https://github.com/Larry-Orton/Prowl.git
@@ -230,81 +170,50 @@ npm run setup
 npm run electron:build
 ```
 
-Important:
-
-- Use `npm run setup`, not plain `npm install`, because PROWL rebuilds native Electron dependencies for Electron.
-- If `node` or `npm` are "not found" right after install, close and reopen your terminal so PATH updates apply.
-
-### Build A Packaged App
-
-If you are building PROWL from source and want installers:
-
-```bash
-npm run electron:build
-```
-
-Artifacts are written to `release/`.
-
-Current packaging targets:
-
-- **Windows**: `nsis`, `portable`
-- **macOS**: `dmg`, `zip` (coming soon)
-- **Linux**: `AppImage`, `deb` (coming soon)
+Use `npm run setup`, not plain `npm install`, because PROWL rebuilds native Electron dependencies.
 
 ### Project Structure
 
 ```text
 src/
   main/                 Electron main process
-    index.ts            IPC handlers, workspace access, browser capture
+    index.ts            IPC handlers, workspace access, TTS, browser capture
     shellManager.ts     Local + Kali shell orchestration, keyword interception
     containerManager.ts Docker/Podman lifecycle, VPN, tool environment
-    aiProxy.ts          AI proxying from the trusted side
+    aiProxy.ts          AI proxying with web search/fetch tools
     preload.ts          Renderer bridge
 
   renderer/             React app
     App.tsx             Main orchestration layer
-    components/         Terminal, AI, notes, timeline, findings, loot, title bar
-    hooks/              Engagement, AI, notes, commands, findings, proactive logic
-    store/              Zustand state for session, terminals, mission mode, findings, etc.
-    lib/                Mission mode and proactive hint logic
+    components/         Terminal, AI, notes, timeline, findings, loot, credentials,
+                        methodology, report, exploit suggestions, notebook viewer
+    hooks/              Engagement, AI, notes, commands, findings
+    store/              Zustand state for session, terminals, mission mode, findings
+    lib/                Mission mode and notebook logic
 
   db/
     client.ts           JSON persistence for engagements, notes, commands, findings, API key
 
   shared/
     types.ts            Shared interfaces
-    constants.ts        Shared constants
-    terminalKeywords.ts Terminal keyword parser (shared between main + renderer)
+    constants.ts        Tool commands, quick commands, shared constants
+    terminalKeywords.ts Terminal keyword parser
 
 docker/
-  Dockerfile            Kali image
-  entrypoint.sh         Container startup behavior
+  Dockerfile            Kali image with 30+ tools
+  entrypoint.sh         Container startup
 
-scripts/
-  setup.js              Electron/native dependency setup
+resources/
+  piper/                Bundled neural TTS voice (Amy)
 ```
 
-Helpful commands:
-
-```bash
-npm run setup             # Install deps and rebuild native modules
-npm run build             # Build main + renderer
-npm run electron:build    # Build and package installers
-npm run typecheck         # Type-check everything
-```
-
-## A Brief And Necessary Legal Vibe Check
+## Legal
 
 Use PROWL on systems you own or are explicitly authorized to assess.
-
-If you point it at something you should not be touching, that is not "research."
-That is paperwork.
 
 ## Contributing
 
 Ideas, issues, and pull requests are welcome.
-If you want to improve the operator experience, AI workflows, container image, recon ergonomics, or mission management, you are very much in the right repo.
 
 ## License
 
