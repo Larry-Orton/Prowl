@@ -415,7 +415,7 @@ const NotebookViewer: React.FC<NotebookViewerProps> = ({ notebook, notebookTitle
   }
 
   // Editable notebook view
-  if (isEditing && activeTab === 'notebook') {
+  if (isEditing) {
     return (
       <div className="nb-overlay" onClick={onClose}>
         <div className="nb-container" onClick={e => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column' }}>
