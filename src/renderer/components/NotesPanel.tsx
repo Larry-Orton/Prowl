@@ -59,46 +59,45 @@ const NotesPanel: React.FC<NotesPanelProps> = ({
     [activeCategory]
   );
 
-  // Get unique "engagement notebooks" — one per target from notes
-  const notebooks = useMemo(() => {
-    const byTarget = new Map<string, { notes: Note[]; latestDate: string }>();
-    for (const note of notes) {
-      const target = currentEngagement?.primaryTarget || 'general';
-      const existing = byTarget.get(target);
-      if (existing) {
-        existing.notes.push(note);
-        if (note.updatedAt > existing.latestDate) existing.latestDate = note.updatedAt;
-      } else {
-        byTarget.set(target, { notes: [note], latestDate: note.updatedAt });
-      }
-    }
-    return Array.from(byTarget.entries()).map(([target, data]) => ({
-      id: target,
-      label: target,
-      noteCount: data.notes.length,
-      latestDate: data.latestDate,
-    }));
-  }, [notes, currentEngagement]);
+  // Scan workspace for all target directories that have notebook.md
+  const [notebooks, setNotebooks] = useState<{ id: string; label: string }[]>([]);
+  useEffect(() => {
+    const scan = async () => {
+      try {
+        const files = await window.electronAPI.workspace.listFiles();
+        const dirs = files.filter(f => f.isDirectory).map(f => f.name);
+        const withNotebooks: { id: string; label: string }[] = [];
+        for (const dir of dirs) {
+          const nb = await window.electronAPI.workspace.readFile(`/workspace/${dir}/notebook.md`);
+          if (nb) withNotebooks.push({ id: dir, label: dir });
+        }
+        setNotebooks(withNotebooks);
+      } catch { /* ignore */ }
+    };
+    scan();
+    const interval = setInterval(scan, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Load notebook.md when opening a notebook
   useEffect(() => {
-    if (!openNotebookId || !ip) {
+    if (!openNotebookId) {
       setNotebookContent('');
       return;
     }
-    window.electronAPI.workspace.readFile(`/workspace/${ip}/notebook.md`)
-      .then(content => setNotebookContent(content || `# ${openNotebookId} Journal\n\nStart taking notes here...\n`))
-      .catch(() => setNotebookContent(`# ${openNotebookId} Journal\n\nStart taking notes here...\n`));
-  }, [openNotebookId, ip]);
+    window.electronAPI.workspace.readFile(`/workspace/${openNotebookId}/notebook.md`)
+      .then(content => setNotebookContent(content || `# ${openNotebookId} Notebook\n\nStart taking notes here...\n`))
+      .catch(() => setNotebookContent(`# ${openNotebookId} Notebook\n\nStart taking notes here...\n`));
+  }, [openNotebookId]);
 
   // Save notebook on change (debounced)
   useEffect(() => {
-    if (!openNotebookId || !ip || !notebookContent) return;
+    if (!openNotebookId || !notebookContent) return;
     const timer = setTimeout(() => {
-      window.electronAPI.workspace.writeFile(`/workspace/${ip}/notebook.md`, notebookContent);
+      window.electronAPI.workspace.writeFile(`/workspace/${openNotebookId}/notebook.md`, notebookContent);
     }, 1000);
     return () => clearTimeout(timer);
-  }, [notebookContent, openNotebookId, ip]);
+  }, [notebookContent, openNotebookId]);
 
   // If notebook is open, show the editable notebook view
   if (openNotebookId) {
@@ -252,45 +251,65 @@ const NotesPanel: React.FC<NotesPanelProps> = ({
               padding: '4px 0',
             }}>
               {notebooks.map(nb => (
-                <button
-                  key={nb.id}
-                  onClick={() => setOpenNotebookId(nb.id)}
-                  className="notebook-spine"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '8px 10px',
-                    background: 'linear-gradient(135deg, #3a2e1e, #4a3828)',
-                    border: '1px solid rgba(180,150,100,0.2)',
-                    borderRadius: 3,
-                    cursor: 'pointer',
-                    color: '#e8dcc8',
-                    fontSize: 12,
-                    fontFamily: '"Georgia", serif',
-                    textAlign: 'left',
-                    transition: 'all 0.15s',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLElement).style.transform = 'translateX(4px)';
-                    (e.currentTarget as HTMLElement).style.boxShadow = '0 3px 8px rgba(0,0,0,0.3)';
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLElement).style.transform = 'translateX(0)';
-                    (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
-                  }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ flexShrink: 0, opacity: 0.6 }}>
-                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-                  </svg>
-                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {nb.label}
-                  </span>
-                  <span style={{ fontSize: 9, opacity: 0.5, flexShrink: 0 }}>
-                    {nb.noteCount} notes
-                  </span>
-                </button>
+                <div key={nb.id} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <button
+                    onClick={() => setOpenNotebookId(nb.id)}
+                    className="notebook-spine"
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '8px 10px',
+                      background: nb.id === ip ? 'linear-gradient(135deg, #4a3828, #5a4530)' : 'linear-gradient(135deg, #3a2e1e, #4a3828)',
+                      border: nb.id === ip ? '1px solid rgba(200,170,100,0.4)' : '1px solid rgba(180,150,100,0.2)',
+                      borderRadius: 3,
+                      cursor: 'pointer',
+                      color: '#e8dcc8',
+                      fontSize: 12,
+                      fontFamily: '"Georgia", serif',
+                      textAlign: 'left',
+                      transition: 'all 0.15s',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLElement).style.transform = 'translateX(4px)';
+                      (e.currentTarget as HTMLElement).style.boxShadow = '0 3px 8px rgba(0,0,0,0.3)';
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLElement).style.transform = 'translateX(0)';
+                      (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
+                    }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ flexShrink: 0, opacity: 0.6 }}>
+                      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                    </svg>
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {nb.label}
+                    </span>
+                    {nb.id === ip && (
+                      <span style={{ fontSize: 8, opacity: 0.5, flexShrink: 0, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                        active
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (confirm(`Delete notebook for ${nb.label}?`)) {
+                        await window.electronAPI.workspace.deleteFile(`/workspace/${nb.id}/notebook.md`);
+                        setNotebooks(prev => prev.filter(n => n.id !== nb.id));
+                      }
+                    }}
+                    style={{
+                      background: 'none', border: 'none', color: 'rgba(200,150,100,0.4)',
+                      cursor: 'pointer', padding: '4px 5px', fontSize: 12, lineHeight: 1,
+                      flexShrink: 0,
+                    }}
+                    title={`Delete ${nb.label} notebook`}
+                  >
+                    x
+                  </button>
+                </div>
               ))}
             </div>
           )}
