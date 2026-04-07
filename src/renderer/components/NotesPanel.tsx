@@ -65,7 +65,7 @@ const NotesPanel: React.FC<NotesPanelProps> = ({
     const scan = async () => {
       try {
         const files = await window.electronAPI.workspace.listFiles();
-        const dirs = files.filter(f => f.isDirectory).map(f => f.name);
+        const dirs = files.filter(f => f.type === 'directory').map(f => f.name);
         const withNotebooks: { id: string; label: string }[] = [];
         for (const dir of dirs) {
           const nb = await window.electronAPI.workspace.readFile(`/workspace/${dir}/notebook.md`);
