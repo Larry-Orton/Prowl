@@ -403,6 +403,7 @@ export function saveEngagement(engagement: Partial<Engagement> & { id: string })
       id: engagement.id,
       name: engagement.name ?? existing.name,
       primaryTarget: engagement.primaryTarget ?? existing.primaryTarget,
+      hostname: engagement.hostname ?? existing.hostname,
       workspacePath: engagement.workspacePath ?? buildWorkspacePath(
         engagement.primaryTarget ?? existing.primaryTarget,
         engagement.id,
@@ -420,6 +421,7 @@ export function saveEngagement(engagement: Partial<Engagement> & { id: string })
     id: engagement.id,
     name: engagement.name ?? 'Untitled Engagement',
     primaryTarget: engagement.primaryTarget ?? '',
+    hostname: engagement.hostname,
     workspacePath: engagement.workspacePath ?? buildWorkspacePath(
       engagement.primaryTarget,
       engagement.id,
@@ -527,6 +529,7 @@ function rowToEngagement(row: EngagementRow): Engagement {
     id: row.id,
     name: row.name,
     primaryTarget: row.primaryTarget,
+    hostname: row.hostname,
     workspacePath: row.workspacePath || buildWorkspacePath(row.primaryTarget, row.id),
     tags,
     createdAt: row.createdAt,

@@ -124,6 +124,7 @@ const App: React.FC = () => {
   const [showMissionModePanel, setShowMissionModePanel] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [aiInitialInput, setAiInitialInput] = useState('');
+  const [credentials, setCredentials] = useState<import('./components/CredentialVault').Credential[]>([]);
   const [browserInitialUrl, setBrowserInitialUrl] = useState('');
   const [dismissedObjectiveKey, setDismissedObjectiveKey] = useState<string | null>(null);
   const [queuedTerminalCommands, setQueuedTerminalCommands] = useState<Record<string, string>>({});
@@ -777,6 +778,15 @@ const App: React.FC = () => {
             workspacePath: nextWorkspacePath,
           });
         }
+        // Auto-create notebook for this target
+        void window.electronAPI.workspace.readFile(`/workspace/${action.ip}/notebook.md`).then(existing => {
+          if (!existing) {
+            const now = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+            void window.electronAPI.workspace.writeFile(`/workspace/${action.ip}/notebook.md`,
+              `# ${action.ip} — ${currentEngagement?.name || 'Engagement'}\n\nStarted: ${now}\n\n## Notes\n\n`
+            );
+          }
+        });
         break;
       }
       case 'note': {
@@ -945,9 +955,9 @@ const App: React.FC = () => {
     journalWritingRef.current = true;
 
     try {
-      // Read existing journal
+      // Read existing notebook
       const existingJournal = await window.electronAPI.workspace.readFile(
-        `/workspace/${context.primaryTarget}/journal.md`
+        `/workspace/${context.primaryTarget}/notebook.md`
       ) || '';
 
       const entriesText = entries.map(e =>
@@ -989,7 +999,7 @@ Write ONLY the new journal entries. Do not repeat existing entries.`;
           ? `${existingJournal}\n\n${result.trim()}`
           : `# Engagement Journal — ${context.primaryTarget}\n\n${result.trim()}`;
         await window.electronAPI.workspace.writeFile(
-          `/workspace/${context.primaryTarget}/journal.md`,
+          `/workspace/${context.primaryTarget}/notebook.md`,
           newJournal
         );
       }
@@ -2020,6 +2030,40 @@ Write ONLY the new journal entries. Do not repeat existing entries.`;
           setShowNotes(true);
           setSelectedNote(noteId);
         }}
+        credentials={credentials}
+        onSaveCredential={(cred) => {
+          const newCred = { ...cred, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
+          setCredentials(prev => [...prev, newCred as import('./components/CredentialVault').Credential]);
+        }}
+        onDeleteCredential={(id) => setCredentials(prev => prev.filter(c => c.id !== id))}
+        onUseCredential={(cred, tool) => {
+          const ip = context.primaryTarget || '';
+          if (tool === 'ssh') {
+            handleQuickCommand(`ssh ${cred.username}@${ip}`);
+          } else if (tool === 'winrm') {
+            handleQuickCommand(`evil-winrm -i ${ip} -u ${cred.username} -p ${cred.password}`);
+          }
+        }}
+        onGenerateReport={async (prompt) => runBackgroundTask(prompt, context, notes)}
+        onAskAIFromExploit={(prompt) => {
+          setShowAI(true);
+          setAiInitialInput(prompt);
+        }}
+        currentEngagementId={currentEngagement?.id || 'default'}
+        missionModeId={missionMode.id}
+        onRunToolFromChecklist={(toolId) => {
+          const { TOOL_COMMANDS } = require('@shared/constants');
+          const tool = TOOL_COMMANDS.find((t: any) => t.id === toolId);
+          if (tool) {
+            const ip = context.primaryTarget || '';
+            const hostname = currentEngagement?.hostname || ip;
+            const cmd = tool.cmd
+              .replace(/\{IP\}/g, ip)
+              .replace(/\{HOST\}/g, hostname)
+              .replace(/\{URL\}/g, hostname ? `http://${hostname}` : `http://${ip}`);
+            handleQuickCommand(cmd);
+          }
+        }}
       />
 
       <div className="main-content">
@@ -2032,11 +2076,13 @@ Write ONLY the new journal entries. Do not repeat existing entries.`;
             notes={filteredNotes}
             selectedNoteId={selectedNoteId}
             searchQuery={searchQuery}
+            currentEngagement={currentEngagement}
             onSelectNote={setSelectedNote}
             onSearchChange={handleSearchChange}
             onDeleteNote={deleteNote}
             onQuickCommand={handleQuickCommand}
             onExportNotes={exportNotes}
+            onPrefillTerminal={handleQuickCommand}
           />
         </div>
         {showNotes && <div className="resize-handle" onMouseDown={handleResizeMouseDown('notes')} />}

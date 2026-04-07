@@ -141,6 +141,7 @@ export interface Engagement {
   id: string;
   name: string;
   primaryTarget?: string;
+  hostname?: string;
   workspacePath?: string;
   tags: string[];
   createdAt: string;
@@ -151,6 +152,7 @@ export interface EngagementRow {
   id: string;
   name: string;
   primaryTarget?: string;
+  hostname?: string;
   workspacePath?: string;
   tags: string;
   createdAt: string;

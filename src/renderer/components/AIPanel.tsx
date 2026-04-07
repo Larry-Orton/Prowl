@@ -172,6 +172,10 @@ const AIPanel: React.FC<AIPanelProps> = ({
       .replace(/<target-update>[\s\S]*?<\/target-update>/g, '')
       .replace(/\*\*([^*]+)\*\*/g, '$1')
       .replace(/#{1,3}\s+/g, '')
+      // Remove lines that are just bullet points with hashes, flags, or non-sentence content
+      .replace(/^[-*]\s+\S+\.\w+:.*$/gm, '')  // file.txt: hash lines
+      .replace(/[✅❌🔥💀🎯⚡]/g, '')           // emojis
+      .replace(/\b[a-f0-9]{32,}\b/g, 'hash')   // long hex hashes → just say "hash"
       .replace(/\n+/g, '. ')
       .replace(/\s*\.\s*\.\s*/g, '. ')
       .replace(/\s+/g, ' ')

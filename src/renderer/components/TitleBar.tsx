@@ -10,6 +10,11 @@ import TimelinePanel, { TimelineItem } from './TimelinePanel';
 import type { ContainerStatus, VPNStatus } from '@shared/types';
 import { useNotesStore } from '../store/notesStore';
 import { useFindingsStore } from '../store/findingsStore';
+import { useSessionStore } from '../store/sessionStore';
+import CredentialVault, { Credential } from './CredentialVault';
+import MethodologyChecklist from './MethodologyChecklist';
+import ReportGenerator from './ReportGenerator';
+import ExploitSuggestions from './ExploitSuggestions';
 
 const kaliLogoUrl = new URL('../assets/kali_logo.png', import.meta.url).href;
 
@@ -37,6 +42,19 @@ interface TitleBarProps {
   onOpenTimelineAI: (prompt: string) => void;
   onOpenTimelineBrowser: (url: string) => void;
   onOpenTimelineNote: (noteId: string) => void;
+  // Credential vault
+  credentials: Credential[];
+  onSaveCredential: (cred: Omit<Credential, 'id' | 'createdAt'>) => void;
+  onDeleteCredential: (id: string) => void;
+  onUseCredential: (cred: Credential, tool: string) => void;
+  // Report
+  onGenerateReport: (prompt: string) => Promise<string | null>;
+  // Exploits
+  onAskAIFromExploit: (prompt: string) => void;
+  // Methodology
+  currentEngagementId: string;
+  missionModeId: string;
+  onRunToolFromChecklist: (toolId: string) => void;
 }
 
 const TitleBar: React.FC<TitleBarProps> = ({
@@ -63,6 +81,15 @@ const TitleBar: React.FC<TitleBarProps> = ({
   onOpenTimelineAI,
   onOpenTimelineBrowser,
   onOpenTimelineNote,
+  credentials,
+  onSaveCredential,
+  onDeleteCredential,
+  onUseCredential,
+  onGenerateReport,
+  onAskAIFromExploit,
+  currentEngagementId,
+  missionModeId,
+  onRunToolFromChecklist,
 }) => {
   const { tabs, activeTabId, addTab, removeTab, setActiveTab, renameTab } = useTerminalStore();
   const allNotes = useNotesStore(s => s.notes);
@@ -73,6 +100,14 @@ const TitleBar: React.FC<TitleBarProps> = ({
   const [showVPNPanel, setShowVPNPanel] = useState(false);
   const [showWorkspacePanel, setShowWorkspacePanel] = useState(false);
   const [showNotebook, setShowNotebook] = useState(false);
+  const [showNotebookPicker, setShowNotebookPicker] = useState(false);
+  const [notebookTarget, setNotebookTarget] = useState<string>('');
+  const [availableNotebooks, setAvailableNotebooks] = useState<string[]>([]);
+  const notebookPickerRef = useRef<HTMLDivElement>(null);
+  const [showCredentials, setShowCredentials] = useState(false);
+  const [showMethodology, setShowMethodology] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [showExploits, setShowExploits] = useState(false);
   const [showFindings, setShowFindings] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
   const [showNewTabMenu, setShowNewTabMenu] = useState(false);
@@ -90,6 +125,37 @@ const TitleBar: React.FC<TitleBarProps> = ({
 
     return allNotes.find((note) => note.tags.includes('ai-canonical')) ?? null;
   }, [activeNotebookId, allNotes]);
+
+  // Scan for available target notebooks
+  useEffect(() => {
+    const scan = async () => {
+      try {
+        const files = await window.electronAPI.workspace.listFiles();
+        const dirs = files.filter(f => f.isDirectory).map(f => f.name);
+        const withNotebooks: string[] = [];
+        for (const dir of dirs) {
+          const nb = await window.electronAPI.workspace.readFile(`/workspace/${dir}/notebook.md`);
+          if (nb) withNotebooks.push(dir);
+        }
+        setAvailableNotebooks(withNotebooks);
+      } catch { /* ignore */ }
+    };
+    scan();
+    const interval = setInterval(scan, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Close notebook picker on outside click
+  useEffect(() => {
+    if (!showNotebookPicker) return;
+    const handler = (e: MouseEvent) => {
+      if (notebookPickerRef.current && !notebookPickerRef.current.contains(e.target as Node)) {
+        setShowNotebookPicker(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showNotebookPicker]);
 
   // Poll container & VPN status
   useEffect(() => {
@@ -343,15 +409,93 @@ const TitleBar: React.FC<TitleBarProps> = ({
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
           </button>
+          <button
+            className="titlebar-btn"
+            onClick={(e) => { e.stopPropagation(); setShowCredentials(true); }}
+            title="Credential Vault"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+          </button>
+          <button
+            className="titlebar-btn"
+            onClick={(e) => { e.stopPropagation(); setShowMethodology(true); }}
+            title="Methodology Checklist"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          </button>
+          <button
+            className="titlebar-btn"
+            onClick={(e) => { e.stopPropagation(); setShowReport(true); }}
+            title="Generate Report"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          </button>
+          <button
+            className="titlebar-btn"
+            onClick={(e) => { e.stopPropagation(); setShowExploits(true); }}
+            title="Exploit Suggestions"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          </button>
 
           <div className="titlebar-divider" />
 
           <button className={`titlebar-btn ${showNotes ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); onToggleNotes(); }} title="Notes Panel">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
           </button>
-          <button className="titlebar-btn" onClick={(e) => { e.stopPropagation(); setShowNotebook(true); }} title="Open Notebook">
+          <div style={{ position: 'relative' }} ref={notebookPickerRef}>
+          <button className="titlebar-btn" onClick={(e) => {
+            e.stopPropagation();
+            const currentTarget = useSessionStore.getState().context.primaryTarget;
+            if (availableNotebooks.length <= 1 && currentTarget) {
+              // Only one notebook — open it directly
+              setNotebookTarget(currentTarget);
+              setShowNotebook(true);
+            } else if (availableNotebooks.length === 0) {
+              // No notebooks — open current target if set
+              if (currentTarget) {
+                setNotebookTarget(currentTarget);
+                setShowNotebook(true);
+              }
+            } else {
+              setShowNotebookPicker(!showNotebookPicker);
+            }
+          }} title="Open Notebook">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
           </button>
+          {showNotebookPicker && availableNotebooks.length > 0 && (
+            <div style={{
+              position: 'absolute', top: '100%', right: 0, marginTop: 4,
+              background: 'var(--bg1)', border: '1px solid var(--border)',
+              borderRadius: 6, padding: 4, zIndex: 200,
+              boxShadow: '0 8px 24px rgba(0,0,0,0.5)', minWidth: 180,
+            }}>
+              <div style={{ fontSize: 9, color: 'var(--text3)', padding: '4px 8px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                Target Notebooks
+              </div>
+              {availableNotebooks.map(target => (
+                <button
+                  key={target}
+                  onClick={() => {
+                    setNotebookTarget(target);
+                    setShowNotebookPicker(false);
+                    setShowNotebook(true);
+                  }}
+                  style={{
+                    display: 'block', width: '100%', padding: '6px 10px',
+                    background: 'transparent', border: 'none', borderRadius: 4,
+                    color: 'var(--text1)', fontSize: 12, textAlign: 'left',
+                    cursor: 'pointer', fontFamily: 'monospace',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg3)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  {target}
+                </button>
+              ))}
+            </div>
+          )}
+          </div>
           <button className={`titlebar-btn ${showAI ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); onToggleAI(); }} title="AI">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
           </button>
@@ -393,9 +537,48 @@ const TitleBar: React.FC<TitleBarProps> = ({
       {showNotebook && (
         <NotebookViewer
           notebook={notebookNote}
-          notebookTitle={currentEngagementName ? `${currentEngagementName} Journal` : 'Prowl Journal'}
+          notebookTitle={notebookTarget || currentEngagementName || 'Prowl Journal'}
           allNotes={allNotes}
-          onClose={() => setShowNotebook(false)}
+          targetOverride={notebookTarget || undefined}
+          onClose={() => { setShowNotebook(false); setNotebookTarget(''); }}
+        />
+      )}
+      {showCredentials && (
+        <CredentialVault
+          credentials={credentials}
+          onSave={onSaveCredential}
+          onDelete={onDeleteCredential}
+          onUseCredential={onUseCredential}
+          onClose={() => setShowCredentials(false)}
+        />
+      )}
+      {showMethodology && (
+        <MethodologyChecklist
+          missionMode={missionModeId}
+          engagementId={currentEngagementId}
+          onRunTool={onRunToolFromChecklist}
+          onClose={() => setShowMethodology(false)}
+        />
+      )}
+      {showReport && (
+        <ReportGenerator
+          target={useSessionStore.getState().context.primaryTarget || ''}
+          hostname={undefined}
+          engagementName={currentEngagementName || 'Engagement'}
+          notes={allNotes}
+          credentials={credentials}
+          context={useSessionStore.getState().context}
+          onGenerate={onGenerateReport}
+          onClose={() => setShowReport(false)}
+        />
+      )}
+      {showExploits && (
+        <ExploitSuggestions
+          services={useSessionStore.getState().context.scannedServices}
+          target={useSessionStore.getState().context.primaryTarget || ''}
+          onRunCommand={onRunCommand}
+          onAskAI={onAskAIFromExploit}
+          onClose={() => setShowExploits(false)}
         />
       )}
     </>

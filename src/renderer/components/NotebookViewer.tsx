@@ -6,6 +6,7 @@ interface NotebookViewerProps {
   notebook: Note | null;
   notebookTitle?: string;
   allNotes?: Note[];
+  targetOverride?: string;
   onClose: () => void;
 }
 
@@ -118,31 +119,41 @@ function buildPages(notes: Note[], notebookTitle: string): PageData[] {
   return pages;
 }
 
-const NotebookViewer: React.FC<NotebookViewerProps> = ({ notebook, notebookTitle, allNotes, onClose }) => {
-  const target = useSessionStore(s => s.context.primaryTarget);
-  const [journalContent, setJournalContent] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'journal' | 'notes'>('journal');
+const NotebookViewer: React.FC<NotebookViewerProps> = ({ notebook, notebookTitle, allNotes, targetOverride, onClose }) => {
+  const sessionTarget = useSessionStore(s => s.context.primaryTarget);
+  const target = targetOverride || sessionTarget;
+  const [notebookContent, setNotebookContent] = useState<string>('');
+  const [isEditing, setIsEditing] = useState(true); // Default to edit mode — it's a notebook
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load journal.md from workspace
-  useEffect(() => {
-    if (!target) {
-      setJournalContent(null);
-      return;
-    }
-    window.electronAPI.workspace.readFile(`/workspace/${target}/journal.md`)
-      .then(content => setJournalContent(content || null))
-      .catch(() => setJournalContent(null));
-  }, [target]);
-
-  // Refresh journal periodically while open
+  // Load notebook.md from workspace
   useEffect(() => {
     if (!target) return;
+    window.electronAPI.workspace.readFile(`/workspace/${target}/notebook.md`)
+      .then(content => setNotebookContent(content || `# ${target} Notebook\n\n`))
+      .catch(() => setNotebookContent(`# ${target} Notebook\n\n`));
+  }, [target]);
+
+  // Refresh notebook content periodically (in case AI appends to it)
+  useEffect(() => {
+    if (!target || isEditing) return; // Don't refresh while user is editing
     const interval = setInterval(() => {
-      window.electronAPI.workspace.readFile(`/workspace/${target}/journal.md`)
-        .then(content => setJournalContent(content || null))
+      window.electronAPI.workspace.readFile(`/workspace/${target}/notebook.md`)
+        .then(content => { if (content) setNotebookContent(content); })
         .catch(() => {});
     }, 10000);
     return () => clearInterval(interval);
+  }, [target, isEditing]);
+
+  // Auto-save notebook on edit (debounced)
+  const handleNotebookEdit = useCallback((newContent: string) => {
+    setNotebookContent(newContent);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      if (target) {
+        window.electronAPI.workspace.writeFile(`/workspace/${target}/notebook.md`, newContent);
+      }
+    }, 1000);
   }, [target]);
 
   const notes = useMemo(() => {
@@ -151,24 +162,17 @@ const NotebookViewer: React.FC<NotebookViewerProps> = ({ notebook, notebookTitle
     return [];
   }, [notebook, allNotes]);
 
-  // Build pages from journal or notes depending on active tab
-  const journalAsNotes = useMemo((): Note[] => {
-    if (!journalContent) return [];
-    return [{
-      id: 'journal',
-      title: `${target || 'Engagement'} Journal`,
-      content: journalContent,
-      tags: ['journal'],
-      source: 'ai' as const,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }];
-  }, [journalContent, target]);
+  const displayNotes = useMemo((): Note[] => [{
+    id: 'nb',
+    title: `${target || 'Target'} Notebook`,
+    content: notebookContent,
+    tags: ['notebook'],
+    source: 'manual' as const,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }], [target, notebookContent]);
 
-  const displayNotes = activeTab === 'journal' && journalAsNotes.length > 0 ? journalAsNotes : notes;
-  const displayTitle = activeTab === 'journal' && journalContent
-    ? `${target || 'Engagement'} Journal`
-    : notebookTitle || notebook?.title || 'Prowl Journal';
+  const displayTitle = `${target || 'Target'} Notebook`;
 
   const pages = useMemo(
     () => buildPages(displayNotes, displayTitle),
@@ -410,6 +414,67 @@ const NotebookViewer: React.FC<NotebookViewerProps> = ({ notebook, notebookTitle
     );
   }
 
+  // Editable notebook view
+  if (isEditing && activeTab === 'notebook') {
+    return (
+      <div className="nb-overlay" onClick={onClose}>
+        <div className="nb-container" onClick={e => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column' }}>
+          <button className="nb-close" onClick={onClose}>x</button>
+          <div style={{
+            flex: 1, display: 'flex', flexDirection: 'column',
+            background: 'linear-gradient(135deg, #f5edd4, #efe5c8)',
+            borderRadius: 8, overflow: 'hidden',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.7)',
+          }}>
+            <div style={{ padding: '16px 20px 8px', borderBottom: '1px solid rgba(120,100,80,0.15)', flexShrink: 0 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#3a2e1e', fontFamily: 'Georgia, serif' }}>
+                {displayTitle}
+              </div>
+              <div style={{ fontSize: 10, color: 'rgba(80,60,40,0.5)', fontStyle: 'italic', marginTop: 2 }}>
+                Editing — auto-saves as you type
+              </div>
+            </div>
+            <textarea
+              value={notebookContent}
+              onChange={e => handleNotebookEdit(e.target.value)}
+              spellCheck={false}
+              style={{
+                flex: 1, width: '100%', border: 'none', outline: 'none', resize: 'none',
+                padding: '16px 24px', fontSize: 14, lineHeight: 1.7,
+                fontFamily: 'Georgia, "Times New Roman", serif',
+                color: '#2c2416', background: 'transparent',
+                backgroundImage: 'repeating-linear-gradient(transparent, transparent 28px, rgba(120,100,80,0.1) 28px, rgba(120,100,80,0.1) 29px)',
+              }}
+            />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 12 }}>
+            <div style={{ display: 'flex', gap: 4, background: 'rgba(40,30,20,0.6)', borderRadius: 6, padding: 3 }}>
+              <button
+                style={{
+                  padding: '4px 12px', fontSize: 11, border: 'none', borderRadius: 4, cursor: 'pointer',
+                  background: 'rgba(180,150,100,0.3)', color: 'rgba(255,240,200,0.9)',
+                  fontFamily: 'Georgia, serif',
+                }}
+              >
+                Edit
+              </button>
+              <button
+                onClick={() => { setIsEditing(false); setCurrentPage(0); }}
+                style={{
+                  padding: '4px 12px', fontSize: 11, border: 'none', borderRadius: 4, cursor: 'pointer',
+                  background: 'transparent', color: 'rgba(255,240,200,0.4)',
+                  fontFamily: 'Georgia, serif',
+                }}
+              >
+                Read
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="nb-overlay" onClick={onClose}>
       <div className="nb-container" onClick={e => e.stopPropagation()}>
@@ -459,26 +524,26 @@ const NotebookViewer: React.FC<NotebookViewerProps> = ({ notebook, notebookTitle
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 12 }}>
           <div style={{ display: 'flex', gap: 4, background: 'rgba(40,30,20,0.6)', borderRadius: 6, padding: 3 }}>
             <button
-              onClick={() => { setActiveTab('journal'); setCurrentPage(0); }}
+              onClick={() => setIsEditing(true)}
               style={{
                 padding: '4px 12px', fontSize: 11, border: 'none', borderRadius: 4, cursor: 'pointer',
-                background: activeTab === 'journal' ? 'rgba(180,150,100,0.3)' : 'transparent',
-                color: activeTab === 'journal' ? 'rgba(255,240,200,0.9)' : 'rgba(255,240,200,0.4)',
+                background: isEditing ? 'rgba(180,150,100,0.3)' : 'transparent',
+                color: isEditing ? 'rgba(255,240,200,0.9)' : 'rgba(255,240,200,0.4)',
                 fontFamily: 'Georgia, serif',
               }}
             >
-              Journal
+              Edit
             </button>
             <button
-              onClick={() => { setActiveTab('notes'); setCurrentPage(0); }}
+              onClick={() => { setIsEditing(false); setCurrentPage(0); }}
               style={{
                 padding: '4px 12px', fontSize: 11, border: 'none', borderRadius: 4, cursor: 'pointer',
-                background: activeTab === 'notes' ? 'rgba(180,150,100,0.3)' : 'transparent',
-                color: activeTab === 'notes' ? 'rgba(255,240,200,0.9)' : 'rgba(255,240,200,0.4)',
+                background: !isEditing ? 'rgba(180,150,100,0.3)' : 'transparent',
+                color: !isEditing ? 'rgba(255,240,200,0.9)' : 'rgba(255,240,200,0.4)',
                 fontFamily: 'Georgia, serif',
               }}
             >
-              Notes
+              Read
             </button>
           </div>
           <div className="nb-indicator" style={{ margin: 0 }}>

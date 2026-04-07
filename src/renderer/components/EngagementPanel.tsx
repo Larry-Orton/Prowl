@@ -16,6 +16,7 @@ const emptyDraft = {
   id: null as string | null,
   name: '',
   primaryTarget: '',
+  hostname: '',
 };
 
 const EngagementPanel: React.FC<EngagementPanelProps> = ({
@@ -42,6 +43,7 @@ const EngagementPanel: React.FC<EngagementPanelProps> = ({
       id: draft.id ?? undefined,
       name,
       primaryTarget: draft.primaryTarget.trim(),
+      hostname: draft.hostname.trim() || undefined,
     });
     setDraft(emptyDraft);
   };
@@ -89,6 +91,7 @@ const EngagementPanel: React.FC<EngagementPanelProps> = ({
                   id: engagement.id,
                   name: engagement.name,
                   primaryTarget: engagement.primaryTarget ?? '',
+                  hostname: engagement.hostname ?? '',
                 })}
               >
                 <div className="engagement-row-header">
@@ -113,13 +116,19 @@ const EngagementPanel: React.FC<EngagementPanelProps> = ({
                   </span>
                   {engagement.id !== DEFAULT_ENGAGEMENT_ID && (
                     <span
-                      className="action-btn"
+                      style={{
+                        fontSize: 10, color: '#f87171', cursor: 'pointer',
+                        padding: '1px 6px', borderRadius: 3,
+                        border: '1px solid rgba(248,113,113,0.3)',
+                      }}
                       onClick={(e) => {
                         e.stopPropagation();
-                        void onDelete(engagement.id);
+                        if (confirm(`Delete "${engagement.name}"? This cannot be undone.`)) {
+                          void onDelete(engagement.id);
+                        }
                       }}
                     >
-                      archive
+                      Delete
                     </span>
                   )}
                 </div>
@@ -140,9 +149,15 @@ const EngagementPanel: React.FC<EngagementPanelProps> = ({
             />
             <input
               className="search-input"
-              placeholder="Primary target"
+              placeholder="Primary target (IP)"
               value={draft.primaryTarget}
               onChange={(e) => setDraft((prev) => ({ ...prev, primaryTarget: e.target.value }))}
+            />
+            <input
+              className="search-input"
+              placeholder="Hostname (e.g. 2million.htb)"
+              value={draft.hostname}
+              onChange={(e) => setDraft((prev) => ({ ...prev, hostname: e.target.value }))}
             />
 
             <div className="engagement-editor-hint">
