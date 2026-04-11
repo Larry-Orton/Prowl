@@ -66,8 +66,9 @@ export interface FindingRow {
 export interface TerminalTab {
   id: string;
   title: string;
-  shellType: 'local' | 'kali';
+  shellType: 'local' | 'kali' | 'notebook';
   isActive: boolean;
+  notebookTarget?: string; // only for notebook tabs
 }
 
 export interface TerminalActivityEntry {

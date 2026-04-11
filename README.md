@@ -37,7 +37,7 @@ It gives you:
 
 | Feature | What it does |
 | --- | --- |
-| **Multi-tab terminals** | Local shell and Kali container tabs, renameable, with split view |
+| **Multi-tab terminals** | Local shell, Kali container, and notebook tabs. Split any direction — click the split icon to choose horizontal or vertical, Local or Kali. Ctrl+Shift+D/E to split, Ctrl+Shift+W to close pane. Supports 2, 3, 4+ panes in auto-grid layout |
 | **35+ Tool Commands** | Categorized Kali tools (Recon, Web, Brute, Exploit, Win/AD, Linux, Util). Click to paste into terminal with target auto-filled |
 | **AI assistant** | Sees your terminal output, remembers across sessions via `target.md`. Choose Opus, Sonnet, or Haiku |
 | **Voice output** | Toggle the mic button — AI speaks responses using a bundled neural voice (Piper TTS). No setup needed |
@@ -49,7 +49,7 @@ It gives you:
 | **Target memory** | AI auto-creates `target.md` per target — remembers ports, services, credentials, and failed attempts across sessions |
 | **VPN management** | Upload .ovpn files, connect/disconnect/switch/delete with one click |
 | **Findings tracker** | Structured discoveries — targets, ports, services, URLs, credentials, vulnerabilities |
-| **Engagements** | Separate targets, notebooks, findings, and history by project. Hostname support for HTTP tools |
+| **Engagements** | Setting a target auto-creates an engagement. Separate notebooks, findings, and history per target. Hostname support for HTTP tools |
 | **Mission timeline** | Chronological feed of commands, notes, findings, and events |
 | **Loot manager** | Browse workspace files, preview, classify, promote to findings |
 | **Embedded browser** | Browse targets through the Kali SOCKS proxy |
@@ -92,9 +92,9 @@ Grab the latest release from [GitHub Releases](https://github.com/Larry-Orton/Pr
 3. Open the Kali panel (dragon icon) and build the image (first time only, takes a few minutes).
 4. Start the Kali container.
 5. Upload your .ovpn file in the VPN panel if you're using HackTheBox or TryHackMe.
-6. Set your target: `target <ip>`.
-7. Set the hostname in the engagement panel if the target uses one (e.g., `2million.htb`).
-8. Use the tool buttons on the left panel to start scanning — commands auto-fill with your target.
+6. Set your target: `target <ip>` — this auto-creates an engagement and notebook.
+7. Use the tool buttons on the left panel to start scanning — commands auto-fill with your target.
+8. Split your terminal with the split icon or `Ctrl+Shift+D` — choose Local or Kali for each pane.
 
 ## Key Concepts
 
@@ -115,7 +115,7 @@ From left to right:
 - **Command palette**: `Ctrl/Cmd+K` to search everything
 - **Engagements**: switch between projects
 - **Mission mode**: current attack phase
-- **Split**: side-by-side terminals
+- **Split**: split terminal — click to choose direction (right/down) and shell type (Local/Kali). Ctrl+Shift+D/E shortcuts
 - **Loot**: workspace file browser
 - **Findings**: structured discoveries
 - **Timeline**: chronological event feed
@@ -123,8 +123,7 @@ From left to right:
 - **Methodology**: pentest checklist (check icon)
 - **Report**: generate pentest report (document icon)
 - **Exploits**: per-service exploit search (lightning icon)
-- **Notes**: toggle left panel
-- **Notebook**: open target notebook (book icon — dropdown if multiple targets)
+- **Notes/Tools**: toggle left panel (tools + library)
 - **AI**: toggle AI chat panel
 - **Browser**: toggle embedded browser
 - **Theme**: color scheme picker

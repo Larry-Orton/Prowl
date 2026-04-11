@@ -2897,6 +2897,207 @@ code {
   .nb-text-line { height: 23px; line-height: 23px; font-size: 12px; }
 }
 
+/* ── Bookshelf ───────────────────────────────── */
+
+.bookshelf-container {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  margin: 0 -14px -10px;
+  background: var(--bg0);
+  border-top: 1px solid var(--border);
+  box-shadow: inset 0 2px 6px rgba(0,0,0,0.3);
+}
+
+.bookshelf-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: 8px 10px 2px;
+}
+
+.bookshelf-shelves {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.bookshelf-row {
+  position: relative;
+}
+
+.bookshelf-books {
+  display: flex;
+  align-items: flex-end;
+  padding: 0 8px;
+  min-height: 74px;
+  gap: 3px;
+}
+
+.bookshelf-plank {
+  height: 8px;
+  position: relative;
+  z-index: 2;
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+  box-shadow:
+    0 4px 8px rgba(0,0,0,0.4),
+    inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+.bookshelf-plank::after {
+  content: '';
+  position: absolute;
+  bottom: -3px;
+  left: 4px;
+  right: 4px;
+  height: 3px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.2), transparent);
+}
+
+.book-spine {
+  position: relative;
+  cursor: pointer;
+  border: none;
+  border-radius: 2px 2px 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.3, 1), box-shadow 0.3s ease;
+  flex-shrink: 0;
+  /* 3D book depth */
+  transform-style: preserve-3d;
+}
+
+.book-spine:hover {
+  transform: translateY(-12px) rotateY(-4deg) !important;
+  z-index: 5;
+  filter: brightness(1.15);
+}
+
+/* Left edge highlight — simulates light on spine curve */
+.book-spine::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 4px;
+  background:
+    linear-gradient(180deg,
+      rgba(255,255,255,0.15) 0%,
+      rgba(255,255,255,0.06) 30%,
+      rgba(255,255,255,0.02) 70%,
+      rgba(0,0,0,0.1) 100%
+    );
+  border-radius: 2px 0 0 0;
+  z-index: 1;
+}
+
+/* Right edge shadow — depth between books */
+.book-spine::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 3px;
+  background:
+    linear-gradient(180deg,
+      rgba(0,0,0,0.15) 0%,
+      rgba(0,0,0,0.25) 50%,
+      rgba(0,0,0,0.35) 100%
+    );
+  z-index: 1;
+}
+
+.book-spine-text {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+  font-size: 9px;
+  font-weight: 700;
+  font-family: 'Georgia', serif;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow:
+    0 1px 2px rgba(0,0,0,0.9),
+    0 0 6px rgba(0,0,0,0.4);
+  letter-spacing: 0.06em;
+  padding: 6px 0;
+  z-index: 2;
+}
+
+.book-spine-band {
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  height: 1px;
+  z-index: 2;
+}
+
+.book-spine-band.top {
+  top: 7px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+}
+
+.book-spine-band.bottom {
+  bottom: 7px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+}
+
+.book-spine.active {
+  box-shadow:
+    3px 0 6px rgba(0,0,0,0.6),
+    -2px 0 4px rgba(0,0,0,0.4),
+    0 0 10px var(--accent-bg) !important;
+}
+
+.book-spine-delete {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 18px;
+  background: #dc2626;
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+  border: none;
+  border-radius: 0 0 0 0;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.15s;
+  padding: 0;
+}
+
+.book-spine:hover .book-spine-delete {
+  opacity: 1;
+}
+
+.book-spine-delete:hover {
+  background: #ef4444;
+}
+
+.bookshelf-empty {
+  padding: 20px 12px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text3);
+  font-family: 'Georgia', serif;
+  font-style: italic;
+}
+
 .terminal-split-toolbar {
   display: flex;
   align-items: center;

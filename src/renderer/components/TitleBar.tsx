@@ -91,7 +91,7 @@ const TitleBar: React.FC<TitleBarProps> = ({
   missionModeId,
   onRunToolFromChecklist,
 }) => {
-  const { tabs, activeTabId, addTab, removeTab, setActiveTab, renameTab } = useTerminalStore();
+  const { tabs, activeTabId, addTab, removeTab, setActiveTab, renameTab, visiblePanes } = useTerminalStore();
   const allNotes = useNotesStore(s => s.notes);
   const activeNotebookId = useNotesStore(s => s.activeNotebookId);
   const findings = useFindingsStore(s => s.findings);
@@ -209,8 +209,8 @@ const TitleBar: React.FC<TitleBarProps> = ({
   const handleMinimize = useCallback(() => window.electronAPI.window.minimize(), []);
   const handleMaximize = useCallback(() => window.electronAPI.window.maximize(), []);
 
-  const handleAddTab = useCallback((type: 'local' | 'kali') => {
-    addTab(type);
+  const handleAddTab = useCallback((type: 'local' | 'kali' | 'notebook', notebookTarget?: string) => {
+    addTab(type, notebookTarget);
     setShowNewTabMenu(false);
   }, [addTab]);
 
@@ -259,8 +259,8 @@ const TitleBar: React.FC<TitleBarProps> = ({
               className={`tab-item ${tab.id === activeTabId ? 'active' : ''}`}
               onClick={(e) => handleTabClick(tab.id, e)}
             >
-              <span className={`tab-index ${tab.shellType === 'kali' ? 'kali' : ''}`}>
-                {tab.shellType === 'kali' ? 'K' : (i + 1)}
+              <span className={`tab-index ${tab.shellType === 'kali' ? 'kali' : tab.shellType === 'notebook' ? 'notebook' : ''}`}>
+                {tab.shellType === 'kali' ? 'K' : tab.shellType === 'notebook' ? 'N' : (i + 1)}
               </span>
               {editingTabId === tab.id ? (
                 <input
@@ -331,6 +331,21 @@ const TitleBar: React.FC<TitleBarProps> = ({
                   Kali Terminal
                   {containerStatus !== 'running' && containerStatus !== 'update_available' && <span className="new-tab-hint">(not running)</span>}
                 </button>
+                {availableNotebooks.length > 0 && (
+                  <>
+                    <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+                    {availableNotebooks.map(target => (
+                      <button
+                        key={target}
+                        className="new-tab-option"
+                        onClick={() => handleAddTab('notebook', target)}
+                      >
+                        <span className="new-tab-icon">N</span>
+                        {target}
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -380,13 +395,79 @@ const TitleBar: React.FC<TitleBarProps> = ({
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12h7"/><path d="M14 6h7"/><path d="M14 18h7"/><circle cx="10" cy="12" r="2"/><circle cx="12" cy="6" r="2"/><circle cx="12" cy="18" r="2"/></svg>
           </button>
-          <button
-            className={`titlebar-btn ${isSplitLayout ? 'active' : ''}`}
-            onClick={(e) => { e.stopPropagation(); onToggleSplit(); }}
-            title={isSplitLayout ? 'Disable split terminals' : 'Enable split terminals'}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 5v14"/></svg>
-          </button>
+          {(() => {
+            const [showSplitMenu, setShowSplitMenu] = React.useState(false);
+            const splitMenuRef = React.useRef<HTMLDivElement>(null);
+            React.useEffect(() => {
+              if (!showSplitMenu) return;
+              const handler = (e: MouseEvent) => {
+                if (splitMenuRef.current && !splitMenuRef.current.contains(e.target as Node)) setShowSplitMenu(false);
+              };
+              document.addEventListener('mousedown', handler);
+              return () => document.removeEventListener('mousedown', handler);
+            }, [showSplitMenu]);
+
+            const doSplit = (dir: 'horizontal' | 'vertical', shell: 'local' | 'kali') => {
+              useTerminalStore.getState().splitActivePane(dir, shell);
+              setShowSplitMenu(false);
+            };
+
+            return (
+              <div style={{ position: 'relative' }} ref={splitMenuRef}>
+                <button
+                  className={`titlebar-btn ${isSplitLayout ? 'active' : ''}`}
+                  onClick={(e) => { e.stopPropagation(); setShowSplitMenu(!showSplitMenu); }}
+                  title="Split terminal"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 5v14"/></svg>
+                </button>
+                {showSplitMenu && (
+                  <div style={{
+                    position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
+                    marginTop: 4, background: 'var(--bg1)', border: '1px solid var(--border)',
+                    borderRadius: 6, padding: 4, zIndex: 200,
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.5)', minWidth: 170,
+                  }}>
+                    <div style={{ fontSize: 9, color: 'var(--text3)', padding: '4px 8px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                      Split Right
+                    </div>
+                    <button className="new-tab-option" onClick={() => doSplit('horizontal', 'local')}>
+                      <span className="new-tab-icon">▸</span> Local Shell
+                    </button>
+                    <button
+                      className="new-tab-option kali"
+                      onClick={() => doSplit('horizontal', 'kali')}
+                      disabled={containerStatus !== 'running' && containerStatus !== 'update_available'}
+                    >
+                      <span className="new-tab-icon">K</span> Kali Terminal
+                    </button>
+                    <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+                    <div style={{ fontSize: 9, color: 'var(--text3)', padding: '4px 8px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                      Split Down
+                    </div>
+                    <button className="new-tab-option" onClick={() => doSplit('vertical', 'local')}>
+                      <span className="new-tab-icon">▸</span> Local Shell
+                    </button>
+                    <button
+                      className="new-tab-option kali"
+                      onClick={() => doSplit('vertical', 'kali')}
+                      disabled={containerStatus !== 'running' && containerStatus !== 'update_available'}
+                    >
+                      <span className="new-tab-icon">K</span> Kali Terminal
+                    </button>
+                    {visiblePanes.length > 1 && (
+                      <>
+                        <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+                        <button className="new-tab-option" onClick={() => { onToggleSplit(); setShowSplitMenu(false); }}>
+                          <span className="new-tab-icon">x</span> Unsplit
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           <button
             className="titlebar-btn"
@@ -443,59 +524,6 @@ const TitleBar: React.FC<TitleBarProps> = ({
           <button className={`titlebar-btn ${showNotes ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); onToggleNotes(); }} title="Notes Panel">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
           </button>
-          <div style={{ position: 'relative' }} ref={notebookPickerRef}>
-          <button className="titlebar-btn" onClick={(e) => {
-            e.stopPropagation();
-            const currentTarget = useSessionStore.getState().context.primaryTarget;
-            if (availableNotebooks.length <= 1 && currentTarget) {
-              // Only one notebook — open it directly
-              setNotebookTarget(currentTarget);
-              setShowNotebook(true);
-            } else if (availableNotebooks.length === 0) {
-              // No notebooks — open current target if set
-              if (currentTarget) {
-                setNotebookTarget(currentTarget);
-                setShowNotebook(true);
-              }
-            } else {
-              setShowNotebookPicker(!showNotebookPicker);
-            }
-          }} title="Open Notebook">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-          </button>
-          {showNotebookPicker && availableNotebooks.length > 0 && (
-            <div style={{
-              position: 'absolute', top: '100%', right: 0, marginTop: 4,
-              background: 'var(--bg1)', border: '1px solid var(--border)',
-              borderRadius: 6, padding: 4, zIndex: 200,
-              boxShadow: '0 8px 24px rgba(0,0,0,0.5)', minWidth: 180,
-            }}>
-              <div style={{ fontSize: 9, color: 'var(--text3)', padding: '4px 8px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                Target Notebooks
-              </div>
-              {availableNotebooks.map(target => (
-                <button
-                  key={target}
-                  onClick={() => {
-                    setNotebookTarget(target);
-                    setShowNotebookPicker(false);
-                    setShowNotebook(true);
-                  }}
-                  style={{
-                    display: 'block', width: '100%', padding: '6px 10px',
-                    background: 'transparent', border: 'none', borderRadius: 4,
-                    color: 'var(--text1)', fontSize: 12, textAlign: 'left',
-                    cursor: 'pointer', fontFamily: 'monospace',
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg3)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                >
-                  {target}
-                </button>
-              ))}
-            </div>
-          )}
-          </div>
           <button className={`titlebar-btn ${showAI ? 'active' : ''}`} onClick={(e) => { e.stopPropagation(); onToggleAI(); }} title="AI">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
           </button>
@@ -532,15 +560,6 @@ const TitleBar: React.FC<TitleBarProps> = ({
           onOpenAI={onOpenTimelineAI}
           onOpenBrowser={onOpenTimelineBrowser}
           onOpenNote={onOpenTimelineNote}
-        />
-      )}
-      {showNotebook && (
-        <NotebookViewer
-          notebook={notebookNote}
-          notebookTitle={notebookTarget || currentEngagementName || 'Prowl Journal'}
-          allNotes={allNotes}
-          targetOverride={notebookTarget || undefined}
-          onClose={() => { setShowNotebook(false); setNotebookTarget(''); }}
         />
       )}
       {showCredentials && (

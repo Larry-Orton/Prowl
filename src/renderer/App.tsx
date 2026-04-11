@@ -5,6 +5,8 @@ import EngagementPanel from './components/EngagementPanel';
 import MissionModePanel from './components/MissionModePanel';
 import type { TimelineItem } from './components/TimelinePanel';
 import Terminal from './components/Terminal';
+import NotebookTab from './components/NotebookTab';
+// SplitPane component available for future tree-based layouts
 import NotesPanel from './components/NotesPanel';
 import AIPanel from './components/AIPanel';
 import StatusBar from './components/StatusBar';
@@ -175,11 +177,16 @@ const App: React.FC = () => {
     tabs,
     activeTabId,
     addTab,
+    removeTab,
     setActiveTab,
     layout,
     secondaryTabId,
     toggleSplit,
     setSecondaryTab,
+    visiblePanes,
+    splitDirection,
+    splitActivePane,
+    removePaneById,
   } = useTerminalStore();
   const lastProactiveEvent = useProactiveEventStore(s => s.lastEvent);
   const proactiveEvents = useProactiveEventStore(s => s.events);
@@ -312,6 +319,23 @@ const App: React.FC = () => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         setShowCommandPalette(true);
+      }
+      // Ctrl+Shift+D: Split right
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'd') {
+        event.preventDefault();
+        splitActivePane('horizontal', 'local');
+      }
+      // Ctrl+Shift+E: Split down
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'e') {
+        event.preventDefault();
+        splitActivePane('vertical', 'local');
+      }
+      // Ctrl+Shift+W: Close active pane (if split)
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'w') {
+        event.preventDefault();
+        if (visiblePanes.length > 1 && activeTabId) {
+          removePaneById(activeTabId);
+        }
       }
     };
 
@@ -762,31 +786,39 @@ const App: React.FC = () => {
     switch (action.type) {
       case 'target': {
         setTarget(action.ip);
-        if (currentEngagement) {
-          const nextWorkspacePath = buildWorkspacePath(action.ip, currentEngagement.id);
-          updateEngagementInStore({
-            ...currentEngagement,
-            primaryTarget: action.ip,
-            workspacePath: nextWorkspacePath,
-            updatedAt: new Date().toISOString(),
-          });
-          void saveEngagement({
-            id: currentEngagement.id,
-            name: currentEngagement.name,
-            primaryTarget: action.ip,
-            tags: currentEngagement.tags,
-            workspacePath: nextWorkspacePath,
-          });
-        }
-        // Auto-create notebook for this target
-        void window.electronAPI.workspace.readFile(`/workspace/${action.ip}/notebook.md`).then(existing => {
-          if (!existing) {
+
+        // Auto-create or switch to engagement for this target
+        void (async () => {
+          // Check if an engagement already exists for this target
+          const existing = engagements.find(e => e.primaryTarget === action.ip);
+          if (existing) {
+            // Switch to existing engagement
+            await selectEngagement(existing.id);
+          } else {
+            // Create new engagement named after the target
+            const saved = await saveEngagement({
+              name: action.ip,
+              primaryTarget: action.ip,
+            });
+            await selectEngagement(saved.id);
+          }
+
+          // Auto-create notebook
+          try {
+            const nb = await window.electronAPI.workspace.readFile(`/workspace/${action.ip}/notebook.md`);
+            if (!nb) {
+              const now = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+              await window.electronAPI.workspace.writeFile(`/workspace/${action.ip}/notebook.md`,
+                `# ${action.ip}\n\nStarted: ${now}\n\n## Notes\n\n`
+              );
+            }
+          } catch {
             const now = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-            void window.electronAPI.workspace.writeFile(`/workspace/${action.ip}/notebook.md`,
-              `# ${action.ip} — ${currentEngagement?.name || 'Engagement'}\n\nStarted: ${now}\n\n## Notes\n\n`
+            await window.electronAPI.workspace.writeFile(`/workspace/${action.ip}/notebook.md`,
+              `# ${action.ip}\n\nStarted: ${now}\n\n## Notes\n\n`
             );
           }
-        });
+        })();
         break;
       }
       case 'note': {
@@ -1973,11 +2005,13 @@ Write ONLY the new journal entries. Do not repeat existing entries.`;
   ]);
 
   const visiblePaneIds = useMemo(() => {
-    const paneIds = layout === 'split'
-      ? [activeTabId, secondaryTabId].filter(Boolean) as string[]
-      : (activeTabId ? [activeTabId] : []);
-    return Array.from(new Set(paneIds));
-  }, [activeTabId, layout, secondaryTabId]);
+    // Multi-pane mode: show all visible panes
+    if (visiblePanes.length > 1) {
+      return visiblePanes.filter(id => tabs.some(t => t.id === id));
+    }
+    // Single pane: always show the active tab
+    return activeTabId ? [activeTabId] : [];
+  }, [activeTabId, visiblePanes, tabs]);
 
   const browserDocked = showBrowser && browserMode === 'dock';
   const browserFocused = showBrowser && browserMode === 'focus';
@@ -2089,30 +2123,23 @@ Write ONLY the new journal entries. Do not repeat existing entries.`;
 
         {/* Terminal + Browser Area */}
         <div className="terminal-area">
-          {layout === 'split' && visiblePaneIds.length > 1 && (
-            <div className="terminal-split-toolbar">
-              <span className="section-label" style={{ marginBottom: 0 }}>Split Layout</span>
-              <select
-                className="findings-select"
-                value={secondaryTabId ?? ''}
-                onChange={(e) => setSecondaryTab(e.target.value || null)}
-                style={{ minWidth: 180, padding: '4px 8px', fontSize: 11 }}
-              >
-                {tabs.filter((tab) => tab.id !== activeTabId).map((tab) => (
-                  <option key={tab.id} value={tab.id}>{tab.title}</option>
-                ))}
-              </select>
-            </div>
-          )}
           <div className={`terminal-browser-row ${browserFocused ? 'browser-focus-active' : ''}`}>
             <div
               style={{
                 flex: 1,
-                display: 'flex',
-                flexDirection: layout === 'split' && visiblePaneIds.length > 1 ? 'row' : 'column',
+                display: visiblePaneIds.length > 2 ? 'grid' : 'flex',
+                flexDirection: visiblePaneIds.length <= 2
+                  ? (splitDirection === 'horizontal' ? 'row' : 'column')
+                  : undefined,
+                gridTemplateColumns: visiblePaneIds.length > 2
+                  ? `repeat(${Math.ceil(Math.sqrt(visiblePaneIds.length))}, 1fr)`
+                  : undefined,
+                gridTemplateRows: visiblePaneIds.length > 2
+                  ? `repeat(${Math.ceil(visiblePaneIds.length / Math.ceil(Math.sqrt(visiblePaneIds.length)))}, 1fr)`
+                  : undefined,
                 overflow: 'hidden',
                 minWidth: 0,
-                gap: layout === 'split' && visiblePaneIds.length > 1 ? 1 : 0,
+                gap: visiblePaneIds.length > 1 ? 2 : 0,
                 position: 'relative',
               }}
             >
@@ -2121,22 +2148,30 @@ Write ONLY the new journal entries. Do not repeat existing entries.`;
                   key={tab.id}
                   data-tab-id={tab.id}
                   style={{
-                    flex: 1,
+                    flex: visiblePaneIds.length <= 2 ? 1 : undefined,
                     display: visiblePaneIds.includes(tab.id) ? 'flex' : 'none',
                     flexDirection: 'column',
                     minHeight: 0,
                     minWidth: 0,
-                    borderRight: layout === 'split' && visiblePaneIds.length > 1 && tab.id === activeTabId ? '1px solid var(--border)' : 'none',
+                    outline: tab.id === activeTabId && visiblePaneIds.length > 1 ? '1px solid var(--accent)' : 'none',
+                    outlineOffset: -1,
                   }}
                   onClick={() => setActiveTab(tab.id)}
                 >
-                  <Terminal
-                    tabId={tab.id}
-                    isActive={tab.id === activeTabId}
-                    onKeywordCommand={handleKeywordCommand}
-                    onCommandComplete={handleCommandComplete}
-                    onLinkClick={(url) => openBrowser(url)}
-                  />
+                  {tab.shellType === 'notebook' ? (
+                    <NotebookTab
+                      target={tab.notebookTarget || ''}
+                      isActive={tab.id === activeTabId}
+                    />
+                  ) : (
+                    <Terminal
+                      tabId={tab.id}
+                      isActive={tab.id === activeTabId}
+                      onKeywordCommand={handleKeywordCommand}
+                      onCommandComplete={handleCommandComplete}
+                      onLinkClick={(url) => openBrowser(url)}
+                    />
+                  )}
                 </div>
               ))}
               {/* Floating "Send to Prowl AI" button */}
@@ -2246,6 +2281,18 @@ Write ONLY the new journal entries. Do not repeat existing entries.`;
             const saved = await saveEngagement(engagement);
             if (!engagement.id) {
               await selectEngagement(saved.id);
+            }
+            // Auto-create notebook for new engagements with a target
+            if (saved.primaryTarget) {
+              try {
+                const nb = await window.electronAPI.workspace.readFile(`/workspace/${saved.primaryTarget}/notebook.md`);
+                if (!nb) {
+                  const now = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+                  await window.electronAPI.workspace.writeFile(`/workspace/${saved.primaryTarget}/notebook.md`,
+                    `# ${saved.primaryTarget} — ${saved.name}\n\nStarted: ${now}\n\n## Notes\n\n`
+                  );
+                }
+              } catch { /* ignore */ }
             }
           }}
           onDelete={async (id) => {
