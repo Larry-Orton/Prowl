@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="assets/logo.png" alt="PROWL" width="220" />
+  <img src="assets/logo.png" alt="PROWL" width="320" />
 </p>
-
-<h1 align="center">PROWL</h1>
 
 <p align="center">
   <strong>A terminal emulator built for pentesters.</strong>
